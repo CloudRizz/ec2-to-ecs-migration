@@ -1,6 +1,6 @@
 terraform {
   required_version = ">= 1.5.0"
-  
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -15,7 +15,7 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
-  
+
   default_tags {
     tags = merge(
       {
@@ -290,10 +290,10 @@ rm app.zip
 # Set ownership
 chown -R ubuntu:ubuntu $APP_DIR
 
-# Run setup script
+# Run setup script (as root, script handles permissions)
 cd $APP_DIR
 chmod +x scripts/setup.sh
-su - ubuntu -c "sudo $APP_DIR/scripts/setup.sh" || bash $APP_DIR/scripts/setup.sh
+bash $APP_DIR/scripts/setup.sh
 
 # Signal completion
 echo "Application setup completed at $(date)" >> /var/log/user-data.log
@@ -309,6 +309,9 @@ resource "aws_instance" "app" {
   iam_instance_profile   = aws_iam_instance_profile.ec2.name
   key_name               = var.key_pair_name != "" ? var.key_pair_name : null
   user_data              = base64encode(local.user_data)
+
+  # Ensure S3 object exists before instance starts
+  depends_on = [aws_s3_object.app]
 
   root_block_device {
     volume_type = "gp3"
@@ -328,7 +331,7 @@ resource "aws_instance" "app" {
 
 # Elastic IP for EC2 (allows easy DNS cutover later)
 resource "aws_eip" "app" {
-  domain = "vpc"
+  domain   = "vpc"
   instance = aws_instance.app.id
 
   tags = {
