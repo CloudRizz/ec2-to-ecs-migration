@@ -1,0 +1,3 @@
+aws_region   = "eu-west-2"
+project_name = "ec2-to-ecs-migration"
+environment  = "prod"
