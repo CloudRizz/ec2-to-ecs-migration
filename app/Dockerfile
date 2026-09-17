@@ -1,17 +1,14 @@
 # =============================================================================
 # Build Stage
 # =============================================================================
-# Use a lightweight Python image to build the application's dependencies.
-# Building dependencies separately keeps build tooling out of the final image.
 
 FROM python:3.11-slim AS builder
 
 # Prevent Python from writing .pyc files during the image build. 
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Ensure Python logs are written directly to stdout/stderr instead of being
-# buffered. This is important because ECS will send these streams to
-# CloudWatch Logs.
+# Ensure Python logs are written directly to stdout/stderr instead of being buffered. 
+# This is important because ECS will send these streams to CloudWatch Logs.
 ENV PYTHONUNBUFFERED=1
 
 # Set the working directory for the build stage.
