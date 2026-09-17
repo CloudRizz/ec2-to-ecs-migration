@@ -66,3 +66,9 @@ variable "tags" {
   default     = {}
 }
 
+# Immutable ECR image tag deployed to the ECS service.
+variable "image_tag" {
+  description = "Immutable ECR image tag deployed to ECS"
+  type        = string
+}
+
