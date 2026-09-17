@@ -86,3 +86,24 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# Minimum number of Fargate tasks maintained by Service Auto Scaling.
+variable "min_capacity" {
+  description = "Minimum number of ECS tasks"
+  type        = number
+  default     = 1
+}
+
+# Maximum number of Fargate tasks allowed by Service Auto Scaling.
+variable "max_capacity" {
+  description = "Maximum number of ECS tasks"
+  type        = number
+  default     = 2
+}
+
+# Average CPU utilisation that ECS Service Auto Scaling will target.
+variable "cpu_target_value" {
+  description = "Target average CPU utilisation percentage"
+  type        = number
+  default     = 60
+}
