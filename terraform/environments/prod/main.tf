@@ -77,6 +77,10 @@ module "ecs" {
   execution_role_arn = module.iam.ecs_task_execution_role_arn
   task_role_arn      = module.iam.ecs_task_role_arn
 
+  # Ensures the ALB listener exists before ECS registers the service.
+  depends_on = [module.alb]
+
   tags = local.common_tags
+
 }
 
