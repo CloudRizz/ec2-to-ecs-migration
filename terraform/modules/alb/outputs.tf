@@ -22,3 +22,14 @@ output "security_group_id" {
   value       = aws_security_group.alb.id
 }
 
+# Exposes the ALB identifier required by CloudWatch metric dimensions.
+output "alb_arn_suffix" {
+  description = "ARN suffix of the Application Load Balancer"
+  value       = aws_lb.this.arn_suffix
+}
+
+# Exposes the target group identifier required by CloudWatch metric dimensions.
+output "target_group_arn_suffix" {
+  description = "ARN suffix of the ALB target group"
+  value       = aws_lb_target_group.app.arn_suffix
+}

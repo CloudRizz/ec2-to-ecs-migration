@@ -84,3 +84,15 @@ module "ecs" {
 
 }
 
+# Creates CloudWatch monitoring for the ECS service and application load balancer.
+module "observability" {
+  source = "../../modules/observability"
+
+  name_prefix             = local.name_prefix
+  ecs_cluster_name        = module.ecs.cluster_name
+  ecs_service_name        = module.ecs.service_name
+  alb_arn_suffix          = module.alb.alb_arn_suffix
+  target_group_arn_suffix = module.alb.target_group_arn_suffix
+
+  tags = local.common_tags
+}
