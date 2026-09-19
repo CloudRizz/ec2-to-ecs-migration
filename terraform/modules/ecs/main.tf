@@ -114,6 +114,11 @@ resource "aws_ecs_service" "app" {
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
+  
+  # Lets Service Auto Scaling manage task count after the initial deployment.
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
 
   network_configuration {
     subnets          = var.private_subnet_ids
