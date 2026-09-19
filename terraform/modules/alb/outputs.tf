@@ -10,10 +10,10 @@ output "alb_dns_name" {
   value       = aws_lb.this.dns_name
 }
 
-# Target group ARN
+# Exposes the target group ARN used to register ECS Fargate tasks.
 output "target_group_arn" {
   description = "ARN of the application target group"
-  value       = aws_lb.this.arn
+  value       = aws_lb_target_group.app.arn
 }
 
 # ALB Security Group
