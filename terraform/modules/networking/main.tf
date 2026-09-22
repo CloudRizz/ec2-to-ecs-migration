@@ -16,6 +16,21 @@ resource "aws_vpc" "main" {
   )
 }
 
+# Restricts the VPC default security group so workloads must use explicitly managed security groups.
+resource "aws_default_security_group" "default" {
+  vpc_id = aws_vpc.main.id
+
+  ingress = []
+  egress  = []
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-default-sg"
+    }
+  )
+}
+
 
 # ---------------------------------------------------------------------------
 # Internet Gateway
@@ -43,10 +58,11 @@ resource "aws_internet_gateway" "main" {
 resource "aws_subnet" "public" {
   for_each = var.public_subnets
 
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = each.value.cidr
-  availability_zone       = each.value.az
-  map_public_ip_on_launch = true
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = each.value.cidr
+  availability_zone = each.value.az
+
+  map_public_ip_on_launch = false
 
   tags = merge(
     var.tags,
@@ -197,4 +213,39 @@ resource "aws_route_table_association" "private" {
 
   subnet_id      = each.value.id
   route_table_id = aws_route_table.private[each.key].id
+}
+
+# ---------------------------------------------------------------------------
+# VPC Flow Logs
+# ---------------------------------------------------------------------------
+# Stores VPC network flow records in CloudWatch for security and troubleshooting.
+
+resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
+  # checkov:skip=CKV_AWS_338:Seven-day retention is intentional for short-lived network diagnostics.
+  # checkov:skip=CKV_AWS_158:AWS-managed encryption at rest is sufficient for this short-lived environment; customer-managed KMS is deferred.
+  name              = "/aws/vpc/${var.name_prefix}-flow-logs"
+  retention_in_days = 7
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-vpc-flow-logs"
+    }
+  )
+}
+
+# Captures accepted and rejected VPC traffic for network-level observability.
+resource "aws_flow_log" "main" {
+  vpc_id               = aws_vpc.main.id
+  traffic_type         = "ALL"
+  log_destination_type = "cloud-watch-logs"
+  log_destination      = aws_cloudwatch_log_group.vpc_flow_logs.arn
+  iam_role_arn         = var.vpc_flow_logs_role_arn
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-vpc-flow-log"
+    }
+  )
 }

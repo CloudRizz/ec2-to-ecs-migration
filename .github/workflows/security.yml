@@ -1,0 +1,75 @@
+# Runs security checks against proposed changes before they can be merged.
+name: Security Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+# Denies unnecessary GitHub token permissions by default.
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      # Pins actions/checkout v6 to an immutable commit for supply-chain security.
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Pins Gitleaks v3 to an immutable commit and scans Git history for exposed secrets.
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  checkov:
+    name: Checkov IaC Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      # Pins actions/checkout v6 to an immutable commit and prevents credential persistence.
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      # Pins Checkov to an immutable commit and scans only the active Terraform stack.
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@444c9db6fa75e2d9c19ebf1fde7322089be9009e
+        with:
+          directory: terraform
+          framework: terraform
+          skip_path: terraform/legacy
+          quiet: true
+
+  zizmor:
+    name: Zizmor Actions Audit
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+
+    steps:
+      # Pins actions/checkout v6 to an immutable commit and prevents credential persistence.
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      # Pins Zizmor v0.6.2 to an immutable commit and audits workflow security.
+      - name: Zizmor
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054
+

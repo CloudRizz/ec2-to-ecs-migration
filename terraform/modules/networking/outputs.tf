@@ -22,3 +22,9 @@ output "private_subnets" {
   description = "Private subnet resources keyed by subnet name"
   value       = aws_subnet.private
 }
+
+# Exposes the VPC CIDR for least-privilege security group rules.
+output "vpc_cidr" {
+  description = "CIDR block of the VPC"
+  value       = aws_vpc.main.cidr_block
+}

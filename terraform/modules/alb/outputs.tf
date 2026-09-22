@@ -33,3 +33,4 @@ output "target_group_arn_suffix" {
   description = "ARN suffix of the ALB target group"
   value       = aws_lb_target_group.app.arn_suffix
 }
+

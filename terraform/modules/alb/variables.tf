@@ -44,3 +44,9 @@ variable "tags" {
   default     = {}
 }
 
+# VPC CIDR used to restrict ALB egress to internal application targets.
+variable "vpc_cidr" {
+  description = "CIDR block of the VPC containing the ECS targets"
+  type        = string
+}
+

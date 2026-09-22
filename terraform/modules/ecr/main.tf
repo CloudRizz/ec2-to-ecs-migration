@@ -1,5 +1,6 @@
 # Respository to store docker images for the application. ECS faragte will later pull image from repo
 resource "aws_ecr_repository" "this" {
+  # checkov:skip=CKV_AWS_136:AWS-managed AES-256 encryption is sufficient for this short-lived environment; a customer-managed KMS key is deferred.
   name                 = var.repository_name
   image_tag_mutability = var.image_tag_mutability
 

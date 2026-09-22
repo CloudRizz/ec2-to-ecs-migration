@@ -29,3 +29,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# IAM role ARN used by VPC Flow Logs to publish records to CloudWatch Logs.
+variable "vpc_flow_logs_role_arn" {
+  description = "ARN of the IAM role used by VPC Flow Logs"
+  type        = string
+}

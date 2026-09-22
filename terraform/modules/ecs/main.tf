@@ -2,6 +2,12 @@
 resource "aws_ecs_cluster" "this" {
   name = "${var.name_prefix}-cluster"
 
+  # Enables enhanced ECS metrics for operational visibility.
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
   tags = merge(
     var.tags,
     {
@@ -24,11 +30,12 @@ resource "aws_security_group" "ecs" {
     security_groups = [var.alb_security_group_id]
   }
 
+  # Allows Fargate tasks to reach required AWS and external HTTPS endpoints through the NAT Gateway.
   egress {
-    description = "Allow outbound traffic from Fargate tasks"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "Allow HTTPS traffic to required external services"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -42,6 +49,8 @@ resource "aws_security_group" "ecs" {
 
 # Stores application logs written by the Fargate containers.
 resource "aws_cloudwatch_log_group" "ecs" {
+  # checkov:skip=CKV_AWS_338:Thirty-day retention is intentional for this short-lived portfolio environment.
+  # checkov:skip=CKV_AWS_158:AWS-managed encryption at rest is sufficient for this short-lived environment; customer-managed KMS is deferred.
   name              = "/ecs/${var.name_prefix}"
   retention_in_days = 30
 
