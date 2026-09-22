@@ -1,0 +1,69 @@
+# Runs security checks against proposed changes before they can be merged.
+name: Security Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+# Denies unnecessary GitHub token permissions by default.
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      # Retrieves the full Git history so Gitleaks can inspect committed secrets.
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Scans the repository and Git history for exposed credentials and secrets.
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  checkov:
+    name: Checkov IaC Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      # Retrieves the repository without persisting GitHub credentials.
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Scans Terraform configuration for security and infrastructure misconfigurations.
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform
+          framework: terraform
+          quiet: true
+
+  zizmor:
+    name: Zizmor Actions Audit
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      # Retrieves the repository without persisting GitHub credentials.
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Audits GitHub Actions workflows for insecure CI/CD patterns.
+      - name: Zizmor
+        uses: zizmorcore/zizmor-action@v0.6.2
+        
