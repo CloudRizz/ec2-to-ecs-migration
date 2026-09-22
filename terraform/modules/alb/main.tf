@@ -12,13 +12,13 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow the ALB to send traffic downstream to app targets
+  # Allows the ALB to send application traffic only to targets on the configured app port.
   egress {
     description = "Allow outbound traffic to application targets"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = var.target_port
+    to_port     = var.target_port
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
   }
 
   tags = merge(

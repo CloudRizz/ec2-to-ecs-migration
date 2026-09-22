@@ -53,6 +53,8 @@ module "alb" {
   name_prefix       = local.name_prefix
   vpc_id            = module.networking.vpc_id
   public_subnet_ids = module.networking.public_subnet_ids
+  # Restricts ALB egress to the application targets inside the VPC.
+  vpc_cidr = module.networking.vpc_cidr
 
   tags = local.common_tags
 }

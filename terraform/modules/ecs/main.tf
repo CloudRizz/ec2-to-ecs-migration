@@ -2,6 +2,12 @@
 resource "aws_ecs_cluster" "this" {
   name = "${var.name_prefix}-cluster"
 
+  # Enables enhanced ECS metrics for operational visibility.
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
   tags = merge(
     var.tags,
     {
@@ -24,11 +30,12 @@ resource "aws_security_group" "ecs" {
     security_groups = [var.alb_security_group_id]
   }
 
+  # Allows Fargate tasks to reach required AWS and external HTTPS endpoints through the NAT Gateway.
   egress {
-    description = "Allow outbound traffic from Fargate tasks"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "Allow HTTPS traffic to required external services"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 

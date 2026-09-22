@@ -50,3 +50,19 @@ resource "aws_ssm_parameter" "state_bucket_name" {
     Purpose = "Terraform backend discovery"
   }
 }
+
+# Removes old Terraform state versions after a recovery window to control long-term storage growth.
+resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  rule {
+    id     = "expire-old-state-versions"
+    status = "Enabled"
+
+    filter {}
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+  }
+}
