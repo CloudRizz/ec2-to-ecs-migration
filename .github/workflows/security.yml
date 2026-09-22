@@ -72,3 +72,4 @@ jobs:
       # Pins Zizmor v0.6.2 to an immutable commit and audits workflow security.
       - name: Zizmor
         uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054
+
