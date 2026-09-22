@@ -50,6 +50,7 @@ resource "aws_security_group" "ecs" {
 # Stores application logs written by the Fargate containers.
 resource "aws_cloudwatch_log_group" "ecs" {
   # checkov:skip=CKV_AWS_338:Thirty-day retention is intentional for this short-lived portfolio environment.
+  # checkov:skip=CKV_AWS_158:AWS-managed encryption at rest is sufficient for this short-lived environment; customer-managed KMS is deferred.
   name              = "/ecs/${var.name_prefix}"
   retention_in_days = 30
 

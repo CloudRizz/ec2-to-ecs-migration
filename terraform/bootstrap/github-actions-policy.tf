@@ -35,6 +35,8 @@ data "aws_iam_policy_document" "github_actions_permissions" {
 
   # Allows Terraform to create, inspect, modify and destroy the VPC networking used by the ECS platform.
   statement {
+    # checkov:skip=CKV_AWS_356:EC2 provisioning actions span multiple VPC resource types and several require wildcard resource scope before resources exist.
+    # checkov:skip=CKV_AWS_111:Terraform requires EC2 write actions across VPC resources during create/update/destroy; scope is limited by the GitHub OIDC trust and project deployment role.
     sid    = "TerraformNetworking"
     effect = "Allow"
 
@@ -44,6 +46,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "ec2:AttachInternetGateway",
       "ec2:AuthorizeSecurityGroupEgress",
       "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:CreateFlowLogs",
       "ec2:CreateInternetGateway",
       "ec2:CreateNatGateway",
       "ec2:CreateRoute",
@@ -52,6 +55,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "ec2:CreateSubnet",
       "ec2:CreateTags",
       "ec2:CreateVpc",
+      "ec2:DeleteFlowLogs",
       "ec2:DeleteInternetGateway",
       "ec2:DeleteNatGateway",
       "ec2:DeleteRoute",
@@ -62,6 +66,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "ec2:DeleteVpc",
       "ec2:DescribeAddresses",
       "ec2:DescribeAvailabilityZones",
+      "ec2:DescribeFlowLogs",
       "ec2:DescribeInternetGateways",
       "ec2:DescribeNatGateways",
       "ec2:DescribeNetworkAcls",
@@ -84,9 +89,24 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # Allows Terraform to manage the ECS cluster, task definitions and Fargate service.
+  # Allows Terraform to inspect ECS resources that require account-wide read access.
   statement {
-    sid    = "TerraformECS"
+    sid    = "DescribeECSResources"
+    effect = "Allow"
+
+    actions = [
+      "ecs:DescribeClusters",
+      "ecs:DescribeTaskDefinition",
+      "ecs:ListServices",
+      "ecs:ListTaskDefinitions"
+    ]
+
+    resources = ["*"]
+  }
+
+  # Allows Terraform to manage only this project's ECS cluster and service.
+  statement {
+    sid    = "TerraformECSService"
     effect = "Allow"
 
     actions = [
@@ -94,29 +114,56 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "ecs:CreateService",
       "ecs:DeleteCluster",
       "ecs:DeleteService",
-      "ecs:DeregisterTaskDefinition",
-      "ecs:DescribeClusters",
       "ecs:DescribeServices",
-      "ecs:DescribeTaskDefinition",
-      "ecs:ListServices",
       "ecs:ListTagsForResource",
-      "ecs:ListTaskDefinitions",
-      "ecs:RegisterTaskDefinition",
       "ecs:TagResource",
       "ecs:UntagResource",
       "ecs:UpdateService"
     ]
 
-    resources = ["*"]
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:*:cluster/${var.project_name}-prod-cluster",
+      "arn:aws:ecs:${var.aws_region}:*:service/${var.project_name}-prod-cluster/${var.project_name}-prod-service"
+    ]
   }
 
-  # Allows Terraform to manage the ECR repository and its lifecycle configuration.
+  # Allows Terraform to register and manage only this project's task-definition family.
   statement {
-    sid    = "TerraformECR"
+    sid    = "TerraformECSTaskDefinitions"
     effect = "Allow"
 
     actions = [
-      "ecr:CreateRepository",
+      "ecs:DeregisterTaskDefinition",
+      "ecs:RegisterTaskDefinition",
+      "ecs:TagResource",
+      "ecs:UntagResource"
+    ]
+
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:*:task-definition/${var.project_name}-prod:*"
+    ]
+  }
+
+  # Allows Terraform to create the project ECR repository.
+  statement {
+    sid    = "TerraformECRCreate"
+    effect = "Allow"
+
+    actions = [
+      "ecr:CreateRepository"
+    ]
+
+    resources = [
+      "arn:aws:ecr:${var.aws_region}:*:repository/${var.project_name}-prod-app"
+    ]
+  }
+
+  # Allows Terraform to manage only the project ECR repository.
+  statement {
+    sid    = "TerraformECRRepository"
+    effect = "Allow"
+
+    actions = [
       "ecr:DeleteLifecyclePolicy",
       "ecr:DeleteRepository",
       "ecr:DescribeImages",
@@ -129,7 +176,9 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "ecr:UntagResource"
     ]
 
-    resources = ["*"]
+    resources = [
+      "arn:aws:ecr:${var.aws_region}:*:repository/${var.project_name}-prod-app"
+    ]
   }
 
   # Allows GitHub Actions to request the temporary ECR authentication token required by Docker.
@@ -165,8 +214,27 @@ data "aws_iam_policy_document" "github_actions_permissions" {
   }
 
   # Allows Terraform to manage the Application Load Balancer, listener and target group.
+  # Allows Terraform to inspect ALB resources because ELB describe APIs are not resource-scoped.
   statement {
-    sid    = "TerraformELB"
+    sid    = "DescribeELBResources"
+    effect = "Allow"
+
+    actions = [
+      "elasticloadbalancing:DescribeListenerAttributes",
+      "elasticloadbalancing:DescribeListeners",
+      "elasticloadbalancing:DescribeLoadBalancerAttributes",
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "elasticloadbalancing:DescribeTags",
+      "elasticloadbalancing:DescribeTargetGroupAttributes",
+      "elasticloadbalancing:DescribeTargetGroups"
+    ]
+
+    resources = ["*"]
+  }
+
+  # Allows Terraform to manage only this project's ALB, listener and target group.
+  statement {
+    sid    = "TerraformELBResources"
     effect = "Allow"
 
     actions = [
@@ -177,23 +245,34 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "elasticloadbalancing:DeleteListener",
       "elasticloadbalancing:DeleteLoadBalancer",
       "elasticloadbalancing:DeleteTargetGroup",
-      "elasticloadbalancing:DescribeListenerAttributes",
-      "elasticloadbalancing:DescribeListeners",
-      "elasticloadbalancing:DescribeLoadBalancerAttributes",
-      "elasticloadbalancing:DescribeLoadBalancers",
-      "elasticloadbalancing:DescribeTags",
-      "elasticloadbalancing:DescribeTargetGroupAttributes",
-      "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:ModifyListener",
       "elasticloadbalancing:ModifyLoadBalancerAttributes",
       "elasticloadbalancing:ModifyTargetGroupAttributes",
       "elasticloadbalancing:RemoveTags"
     ]
 
-    resources = ["*"]
+    resources = [
+      "arn:aws:elasticloadbalancing:${var.aws_region}:*:loadbalancer/app/${var.project_name}-prod-alb/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:*:listener/app/${var.project_name}-prod-alb/*/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:*:targetgroup/${var.project_name}-prod-tg/*"
+    ]
   }
 
   # Allows Terraform to configure ECS Service Auto Scaling.
+  # Allows Terraform to inspect ECS scaling configuration because describe APIs are not resource-scoped.
+  statement {
+    sid    = "DescribeAutoScaling"
+    effect = "Allow"
+
+    actions = [
+      "application-autoscaling:DescribeScalableTargets",
+      "application-autoscaling:DescribeScalingPolicies"
+    ]
+
+    resources = ["*"]
+  }
+
+  # Allows Terraform to manage only ECS scalable targets for this deployment.
   statement {
     sid    = "TerraformAutoScaling"
     effect = "Allow"
@@ -201,36 +280,94 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     actions = [
       "application-autoscaling:DeleteScalingPolicy",
       "application-autoscaling:DeregisterScalableTarget",
-      "application-autoscaling:DescribeScalableTargets",
-      "application-autoscaling:DescribeScalingPolicies",
       "application-autoscaling:PutScalingPolicy",
       "application-autoscaling:RegisterScalableTarget",
       "application-autoscaling:TagResource",
       "application-autoscaling:UntagResource"
     ]
 
-    resources = ["*"]
+    resources = [
+      "arn:aws:application-autoscaling:${var.aws_region}:*:scalable-target/*"
+    ]
+
+    # Restricts scaling changes to ECS service desired-count targets.
+    condition {
+      test     = "StringEquals"
+      variable = "application-autoscaling:service-namespace"
+
+      values = [
+        "ecs"
+      ]
+    }
+
+    # Restricts scaling changes to the ECS service desired-count dimension.
+    condition {
+      test     = "StringEquals"
+      variable = "application-autoscaling:scalable-dimension"
+
+      values = [
+        "ecs:service:DesiredCount"
+      ]
+    }
   }
 
-  # Allows Terraform to manage application log groups and monitoring alarms.
+  # Allows Terraform to manage only this project's CloudWatch log groups.
   statement {
-    sid    = "TerraformObservability"
+    sid    = "TerraformLogGroups"
     effect = "Allow"
 
     actions = [
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
-      "logs:DescribeLogGroups",
       "logs:ListTagsForResource",
       "logs:PutRetentionPolicy",
       "logs:TagResource",
-      "logs:UntagResource",
+      "logs:UntagResource"
+    ]
+
+    resources = [
+      "arn:aws:logs:${var.aws_region}:*:log-group:/ecs/${var.project_name}-prod*",
+      "arn:aws:logs:${var.aws_region}:*:log-group:/aws/vpc/${var.project_name}-prod-flow-logs*"
+    ]
+  }
+
+  # Allows Terraform to discover CloudWatch log groups because this API is not resource-scoped.
+  statement {
+    sid    = "DescribeLogGroups"
+    effect = "Allow"
+
+    actions = [
+      "logs:DescribeLogGroups"
+    ]
+
+    resources = ["*"]
+  }
+
+  # Allows Terraform to manage only this project's CloudWatch alarms.
+  statement {
+    sid    = "TerraformCloudWatchAlarms"
+    effect = "Allow"
+
+    actions = [
       "cloudwatch:DeleteAlarms",
-      "cloudwatch:DescribeAlarms",
       "cloudwatch:ListTagsForResource",
       "cloudwatch:PutMetricAlarm",
       "cloudwatch:TagResource",
       "cloudwatch:UntagResource"
+    ]
+
+    resources = [
+      "arn:aws:cloudwatch:${var.aws_region}:*:alarm:${var.project_name}-prod-*"
+    ]
+  }
+
+  # Allows Terraform to read alarm state because DescribeAlarms is account-scoped.
+  statement {
+    sid    = "DescribeCloudWatchAlarms"
+    effect = "Allow"
+
+    actions = [
+      "cloudwatch:DescribeAlarms"
     ]
 
     resources = ["*"]
@@ -256,6 +393,28 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = [
       "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-ecs-execution-role",
       "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-ecs-task-role"
+    ]
+  }
+
+  # Allows Terraform to manage only the dedicated IAM role used by VPC Flow Logs.
+  statement {
+    sid    = "TerraformVPCFlowLogsIAMRole"
+    effect = "Allow"
+
+    actions = [
+      "iam:CreateRole",
+      "iam:DeleteRole",
+      "iam:DeleteRolePolicy",
+      "iam:GetRole",
+      "iam:GetRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:PutRolePolicy",
+      "iam:TagRole",
+      "iam:UntagRole"
+    ]
+
+    resources = [
+      "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-vpc-flow-logs-role"
     ]
   }
 
@@ -294,6 +453,29 @@ data "aws_iam_policy_document" "github_actions_permissions" {
 
       values = [
         "ecs-tasks.amazonaws.com"
+      ]
+    }
+  }
+
+  # Allows Terraform to pass only the VPC Flow Logs role to the Flow Logs service.
+  statement {
+    sid    = "PassVPCFlowLogsRole"
+    effect = "Allow"
+
+    actions = [
+      "iam:PassRole"
+    ]
+
+    resources = [
+      "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-vpc-flow-logs-role"
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+
+      values = [
+        "vpc-flow-logs.amazonaws.com"
       ]
     }
   }

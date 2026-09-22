@@ -222,6 +222,7 @@ resource "aws_route_table_association" "private" {
 
 resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
   # checkov:skip=CKV_AWS_338:Seven-day retention is intentional for short-lived network diagnostics.
+  # checkov:skip=CKV_AWS_158:AWS-managed encryption at rest is sufficient for this short-lived environment; customer-managed KMS is deferred.
   name              = "/aws/vpc/${var.name_prefix}-flow-logs"
   retention_in_days = 7
 
