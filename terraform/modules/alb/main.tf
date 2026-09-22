@@ -32,6 +32,7 @@ resource "aws_security_group" "alb" {
 # ALB
 resource "aws_lb" "this" {
   # checkov:skip=CKV_AWS_150:Deletion protection is disabled so the short-lived environment can be destroyed cleanly.
+  # checkov:skip=CKV_AWS_91:ALB access logging is deferred for this short-lived portfolio environment; VPC Flow Logs, ECS logs and CloudWatch metrics provide the current observability layer.
   name               = "${var.name_prefix}-alb"
   internal           = false # make the ALB public/internet facing
   load_balancer_type = "application"
