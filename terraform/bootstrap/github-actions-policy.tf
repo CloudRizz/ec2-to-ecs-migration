@@ -1,7 +1,19 @@
-# Builds the permissions used by GitHub Actions to deploy the production infrastructure.
-data "aws_iam_policy_document" "github_actions_permissions" {
+# =============================================================================
+# GitHub Actions Deployment Policies
+# =============================================================================
+# Splits deployment permissions across multiple managed policies to stay within
+# AWS IAM managed-policy size limits while preserving least-privilege access.
+# =============================================================================
 
-  # Allows Terraform to inspect the remote-state bucket and locate the production state.
+
+# =============================================================================
+# Terraform State and Backend Discovery
+# =============================================================================
+
+# Builds the permissions required to access the production Terraform backend.
+data "aws_iam_policy_document" "github_actions_state" {
+
+  # Allows Terraform to inspect the remote-state bucket.
   statement {
     sid    = "TerraformStateBucket"
     effect = "Allow"
@@ -16,7 +28,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # Allows Terraform to read and update only the production state object.
+  # Allows Terraform to read and update only the production state and lock objects.
   statement {
     sid    = "TerraformStateObjects"
     effect = "Allow"
@@ -33,10 +45,33 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # Allows Terraform to create, inspect, modify and destroy the VPC networking used by the ECS platform.
+  # Allows GitHub Actions to discover the remote-state bucket through Parameter Store.
   statement {
-    # checkov:skip=CKV_AWS_356:EC2 provisioning actions span multiple VPC resource types and several require wildcard resource scope before resources exist.
-    # checkov:skip=CKV_AWS_111:Terraform requires EC2 write actions across VPC resources during create/update/destroy; scope is limited by the GitHub OIDC trust and project deployment role.
+    sid    = "TerraformBackendDiscovery"
+    effect = "Allow"
+
+    actions = [
+      "ssm:GetParameter"
+    ]
+
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:*:parameter/${var.project_name}/bootstrap/state-bucket"
+    ]
+  }
+}
+
+
+# =============================================================================
+# Networking and Application Load Balancer
+# =============================================================================
+
+# Builds the permissions required to provision the production network and ALB.
+data "aws_iam_policy_document" "github_actions_networking" {
+  # checkov:skip=CKV_AWS_356:EC2 provisioning spans multiple dynamically-created VPC resources and several operations require wildcard resource scope.
+  # checkov:skip=CKV_AWS_111:Terraform requires EC2 write access across dynamically-created VPC resources; access remains constrained by the GitHub OIDC deployment role.
+
+  # Allows Terraform to create, inspect, modify and destroy the VPC networking used by ECS.
+  statement {
     sid    = "TerraformNetworking"
     effect = "Allow"
 
@@ -89,14 +124,92 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # Allows Terraform to inspect ECS resources that require account-wide read access.
+  # Allows Terraform to inspect ALB resources because these describe APIs are account-scoped.
   statement {
-    sid    = "DescribeECSResources"
+    sid    = "DescribeELBResources"
     effect = "Allow"
 
     actions = [
-      "ecs:DescribeClusters",
-      "ecs:DescribeTaskDefinition",
+      "elasticloadbalancing:DescribeListenerAttributes",
+      "elasticloadbalancing:DescribeListeners",
+      "elasticloadbalancing:DescribeLoadBalancerAttributes",
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "elasticloadbalancing:DescribeTags",
+      "elasticloadbalancing:DescribeTargetGroupAttributes",
+      "elasticloadbalancing:DescribeTargetGroups"
+    ]
+
+    resources = ["*"]
+  }
+
+  # Allows Terraform to manage only this project's ALB resources.
+  statement {
+    sid    = "TerraformELBResources"
+    effect = "Allow"
+
+    actions = [
+      "elasticloadbalancing:AddTags",
+      "elasticloadbalancing:CreateListener",
+      "elasticloadbalancing:CreateLoadBalancer",
+      "elasticloadbalancing:CreateTargetGroup",
+      "elasticloadbalancing:DeleteListener",
+      "elasticloadbalancing:DeleteLoadBalancer",
+      "elasticloadbalancing:DeleteTargetGroup",
+      "elasticloadbalancing:ModifyListener",
+      "elasticloadbalancing:ModifyLoadBalancerAttributes",
+      "elasticloadbalancing:ModifyTargetGroupAttributes",
+      "elasticloadbalancing:RemoveTags"
+    ]
+
+    resources = [
+      "arn:aws:elasticloadbalancing:${var.aws_region}:*:loadbalancer/app/${var.project_name}-prod-alb/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:*:listener/app/${var.project_name}-prod-alb/*/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:*:targetgroup/${var.project_name}-prod-tg/*"
+    ]
+  }
+}
+
+
+# =============================================================================
+# ECS, ECR, Auto Scaling and Observability
+# =============================================================================
+
+# Builds the application-platform permissions used by the deployment pipeline.
+data "aws_iam_policy_document" "github_actions_platform" {
+  # checkov:skip=CKV_AWS_356:Remaining wildcard resources are limited to AWS APIs that do not support practical resource-level scoping; all resource-capable platform actions are scoped to project resources.
+
+  # Allows Terraform to inspect only this project's ECS cluster.
+  statement {
+    sid    = "DescribeECSCluster"
+    effect = "Allow"
+
+    actions = [
+      "ecs:DescribeClusters"
+    ]
+
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:*:cluster/${var.project_name}-prod-cluster"
+    ]
+  }
+
+  # Allows Terraform to inspect task definitions because this API does not support resource-level scoping.
+  statement {
+    sid    = "DescribeECSTaskDefinition"
+    effect = "Allow"
+
+    actions = [
+      "ecs:DescribeTaskDefinition"
+    ]
+
+    resources = ["*"]
+  }
+
+  # Allows Terraform to list ECS resources that require account-level scope.
+  statement {
+    sid    = "ListECSResources"
+    effect = "Allow"
+
+    actions = [
       "ecs:ListServices",
       "ecs:ListTaskDefinitions"
     ]
@@ -144,44 +257,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # Allows Terraform to create the project ECR repository.
-  statement {
-    sid    = "TerraformECRCreate"
-    effect = "Allow"
-
-    actions = [
-      "ecr:CreateRepository"
-    ]
-
-    resources = [
-      "arn:aws:ecr:${var.aws_region}:*:repository/${var.project_name}-prod-app"
-    ]
-  }
-
-  # Allows Terraform to manage only the project ECR repository.
-  statement {
-    sid    = "TerraformECRRepository"
-    effect = "Allow"
-
-    actions = [
-      "ecr:DeleteLifecyclePolicy",
-      "ecr:DeleteRepository",
-      "ecr:DescribeImages",
-      "ecr:DescribeRepositories",
-      "ecr:GetLifecyclePolicy",
-      "ecr:GetRepositoryPolicy",
-      "ecr:ListTagsForResource",
-      "ecr:PutLifecyclePolicy",
-      "ecr:TagResource",
-      "ecr:UntagResource"
-    ]
-
-    resources = [
-      "arn:aws:ecr:${var.aws_region}:*:repository/${var.project_name}-prod-app"
-    ]
-  }
-
-  # Allows GitHub Actions to request the temporary ECR authentication token required by Docker.
+  # Allows Docker to request the temporary ECR authentication token.
   statement {
     sid    = "ECRAuthentication"
     effect = "Allow"
@@ -193,7 +269,21 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # Allows GitHub Actions to push and inspect images only in this project's production ECR repository.
+  # Allows the workflow to discover only the bootstrap-owned project repository.
+  statement {
+    sid    = "ECRRepositoryDiscovery"
+    effect = "Allow"
+
+    actions = [
+      "ecr:DescribeRepositories"
+    ]
+
+    resources = [
+      "arn:aws:ecr:${var.aws_region}:*:repository/${var.project_name}-prod-app"
+    ]
+  }
+
+  # Allows GitHub Actions to push images only to this project's ECR repository.
   statement {
     sid    = "ECRImagePush"
     effect = "Allow"
@@ -213,53 +303,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # Allows Terraform to manage the Application Load Balancer, listener and target group.
-  # Allows Terraform to inspect ALB resources because ELB describe APIs are not resource-scoped.
-  statement {
-    sid    = "DescribeELBResources"
-    effect = "Allow"
-
-    actions = [
-      "elasticloadbalancing:DescribeListenerAttributes",
-      "elasticloadbalancing:DescribeListeners",
-      "elasticloadbalancing:DescribeLoadBalancerAttributes",
-      "elasticloadbalancing:DescribeLoadBalancers",
-      "elasticloadbalancing:DescribeTags",
-      "elasticloadbalancing:DescribeTargetGroupAttributes",
-      "elasticloadbalancing:DescribeTargetGroups"
-    ]
-
-    resources = ["*"]
-  }
-
-  # Allows Terraform to manage only this project's ALB, listener and target group.
-  statement {
-    sid    = "TerraformELBResources"
-    effect = "Allow"
-
-    actions = [
-      "elasticloadbalancing:AddTags",
-      "elasticloadbalancing:CreateListener",
-      "elasticloadbalancing:CreateLoadBalancer",
-      "elasticloadbalancing:CreateTargetGroup",
-      "elasticloadbalancing:DeleteListener",
-      "elasticloadbalancing:DeleteLoadBalancer",
-      "elasticloadbalancing:DeleteTargetGroup",
-      "elasticloadbalancing:ModifyListener",
-      "elasticloadbalancing:ModifyLoadBalancerAttributes",
-      "elasticloadbalancing:ModifyTargetGroupAttributes",
-      "elasticloadbalancing:RemoveTags"
-    ]
-
-    resources = [
-      "arn:aws:elasticloadbalancing:${var.aws_region}:*:loadbalancer/app/${var.project_name}-prod-alb/*",
-      "arn:aws:elasticloadbalancing:${var.aws_region}:*:listener/app/${var.project_name}-prod-alb/*/*",
-      "arn:aws:elasticloadbalancing:${var.aws_region}:*:targetgroup/${var.project_name}-prod-tg/*"
-    ]
-  }
-
-  # Allows Terraform to configure ECS Service Auto Scaling.
-  # Allows Terraform to inspect ECS scaling configuration because describe APIs are not resource-scoped.
+  # Allows Terraform to inspect ECS Application Auto Scaling configuration.
   statement {
     sid    = "DescribeAutoScaling"
     effect = "Allow"
@@ -272,7 +316,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # Allows Terraform to manage only ECS scalable targets for this deployment.
+  # Allows Terraform to manage only ECS desired-count scaling targets.
   statement {
     sid    = "TerraformAutoScaling"
     effect = "Allow"
@@ -290,7 +334,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "arn:aws:application-autoscaling:${var.aws_region}:*:scalable-target/*"
     ]
 
-    # Restricts scaling changes to ECS service desired-count targets.
+    # Restricts scaling changes to the ECS service namespace.
     condition {
       test     = "StringEquals"
       variable = "application-autoscaling:service-namespace"
@@ -300,7 +344,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       ]
     }
 
-    # Restricts scaling changes to the ECS service desired-count dimension.
+    # Restricts scaling changes to ECS service desired-count targets.
     condition {
       test     = "StringEquals"
       variable = "application-autoscaling:scalable-dimension"
@@ -331,7 +375,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # Allows Terraform to discover CloudWatch log groups because this API is not resource-scoped.
+  # Allows Terraform to discover CloudWatch log groups.
   statement {
     sid    = "DescribeLogGroups"
     effect = "Allow"
@@ -361,7 +405,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # Allows Terraform to read alarm state because DescribeAlarms is account-scoped.
+  # Allows Terraform to inspect alarm state during refresh and planning.
   statement {
     sid    = "DescribeCloudWatchAlarms"
     effect = "Allow"
@@ -372,8 +416,17 @@ data "aws_iam_policy_document" "github_actions_permissions" {
 
     resources = ["*"]
   }
+}
 
-  # Allows Terraform to manage only the ECS IAM roles created for this production platform.
+
+# =============================================================================
+# IAM and PassRole
+# =============================================================================
+
+# Builds the IAM permissions required for ECS and VPC Flow Logs roles.
+data "aws_iam_policy_document" "github_actions_iam" {
+
+  # Allows Terraform to manage only the ECS roles used by this project.
   statement {
     sid    = "TerraformECSIAMRoles"
     effect = "Allow"
@@ -391,12 +444,12 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
 
     resources = [
-      "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-ecs-execution-role",
-      "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-ecs-task-role"
+      "arn:aws:iam::*:role/${var.project_name}-prod-ecs-execution-role",
+      "arn:aws:iam::*:role/${var.project_name}-prod-ecs-task-role"
     ]
   }
 
-  # Allows Terraform to manage only the dedicated IAM role used by VPC Flow Logs.
+  # Allows Terraform to manage only the dedicated VPC Flow Logs role.
   statement {
     sid    = "TerraformVPCFlowLogsIAMRole"
     effect = "Allow"
@@ -414,11 +467,11 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
 
     resources = [
-      "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-vpc-flow-logs-role"
+      "arn:aws:iam::*:role/${var.project_name}-prod-vpc-flow-logs-role"
     ]
   }
 
-  # Allows Terraform to inspect the AWS-managed policy attached to the ECS execution role.
+  # Allows Terraform to inspect the AWS-managed ECS task execution policy.
   statement {
     sid    = "ReadECSManagedPolicy"
     effect = "Allow"
@@ -433,7 +486,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # Allows only the project's ECS roles to be passed to the ECS tasks service.
+  # Allows only project ECS roles to be passed to the ECS tasks service.
   statement {
     sid    = "PassECSRoles"
     effect = "Allow"
@@ -443,8 +496,8 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
 
     resources = [
-      "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-ecs-execution-role",
-      "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-ecs-task-role"
+      "arn:aws:iam::*:role/${var.project_name}-prod-ecs-execution-role",
+      "arn:aws:iam::*:role/${var.project_name}-prod-ecs-task-role"
     ]
 
     condition {
@@ -457,7 +510,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     }
   }
 
-  # Allows Terraform to pass only the VPC Flow Logs role to the Flow Logs service.
+  # Allows only the dedicated Flow Logs role to be passed to the Flow Logs service.
   statement {
     sid    = "PassVPCFlowLogsRole"
     effect = "Allow"
@@ -467,7 +520,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
 
     resources = [
-      "arn:aws:iam::*:role/ec2-to-ecs-migration-prod-vpc-flow-logs-role"
+      "arn:aws:iam::*:role/${var.project_name}-prod-vpc-flow-logs-role"
     ]
 
     condition {
@@ -479,32 +532,70 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       ]
     }
   }
-
-  # Allows GitHub Actions to discover the Terraform state bucket without listing AWS buckets.
-  statement {
-    sid    = "TerraformBackendDiscovery"
-    effect = "Allow"
-
-    actions = [
-      "ssm:GetParameter"
-    ]
-
-    resources = [
-      "arn:aws:ssm:${var.aws_region}:*:parameter/${var.project_name}/bootstrap/state-bucket"
-    ]
-  }
 }
 
-# Creates the customer-managed IAM policy used by the GitHub deployment role.
-resource "aws_iam_policy" "github_actions" {
-  name        = "${var.project_name}-github-actions"
-  description = "Permissions used by GitHub Actions to deploy the ECS migration platform"
 
-  policy = data.aws_iam_policy_document.github_actions_permissions.json
+# =============================================================================
+# Managed Policies
+# =============================================================================
+
+# Creates the backend-access policy used by the GitHub deployment role.
+resource "aws_iam_policy" "github_actions_state" {
+  name        = "${var.project_name}-github-actions-state"
+  description = "Terraform backend permissions for GitHub Actions"
+
+  policy = data.aws_iam_policy_document.github_actions_state.json
 }
 
-# Attaches the deployment permissions to the GitHub Actions OIDC role.
-resource "aws_iam_role_policy_attachment" "github_actions" {
+# Creates the networking deployment policy used by the GitHub deployment role.
+resource "aws_iam_policy" "github_actions_networking" {
+  name        = "${var.project_name}-github-actions-networking"
+  description = "Networking and ALB deployment permissions for GitHub Actions"
+
+  policy = data.aws_iam_policy_document.github_actions_networking.json
+}
+
+# Creates the application-platform policy used by the GitHub deployment role.
+resource "aws_iam_policy" "github_actions_platform" {
+  name        = "${var.project_name}-github-actions-platform"
+  description = "ECS, ECR, scaling and observability permissions for GitHub Actions"
+
+  policy = data.aws_iam_policy_document.github_actions_platform.json
+}
+
+# Creates the IAM-management policy used by the GitHub deployment role.
+resource "aws_iam_policy" "github_actions_iam" {
+  name        = "${var.project_name}-github-actions-iam"
+  description = "IAM and PassRole permissions for GitHub Actions"
+
+  policy = data.aws_iam_policy_document.github_actions_iam.json
+}
+
+
+# =============================================================================
+# Role Attachments
+# =============================================================================
+
+# Attaches Terraform backend permissions to the GitHub Actions OIDC role.
+resource "aws_iam_role_policy_attachment" "github_actions_state" {
   role       = aws_iam_role.github_actions.name
-  policy_arn = aws_iam_policy.github_actions.arn
+  policy_arn = aws_iam_policy.github_actions_state.arn
+}
+
+# Attaches networking permissions to the GitHub Actions OIDC role.
+resource "aws_iam_role_policy_attachment" "github_actions_networking" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_networking.arn
+}
+
+# Attaches platform permissions to the GitHub Actions OIDC role.
+resource "aws_iam_role_policy_attachment" "github_actions_platform" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_platform.arn
+}
+
+# Attaches IAM management permissions to the GitHub Actions OIDC role.
+resource "aws_iam_role_policy_attachment" "github_actions_iam" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_iam.arn
 }
