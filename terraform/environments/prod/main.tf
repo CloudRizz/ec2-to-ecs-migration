@@ -35,17 +35,6 @@ module "networking" {
   tags = local.common_tags
 }
 
-# Creates the private ECR repository for immutable application imageges
-module "ecr" {
-  source = "../../modules/ecr"
-
-  # shared naming convention
-  repository_name = "${local.name_prefix}-app"
-
-  # Pass common env tags into the reusable module
-  tags = local.common_tags
-}
-
 # Provides the public entry point and forwards traffic to private ECS tasks.
 module "alb" {
   source = "../../modules/alb"
@@ -78,7 +67,8 @@ module "ecs" {
   alb_security_group_id = module.alb.security_group_id
   target_group_arn      = module.alb.target_group_arn
 
-  container_image    = "${module.ecr.repository_url}:${var.image_tag}"
+  # Deploys the immutable image from the persistent bootstrap-owned ECR repository.
+  container_image    = "${var.ecr_repository_url}:${var.image_tag}"
   execution_role_arn = module.iam.ecs_task_execution_role_arn
   task_role_arn      = module.iam.ecs_task_role_arn
 
