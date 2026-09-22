@@ -50,3 +50,62 @@ resource "aws_iam_role" "ecs_task" {
   )
 }
 
+# Provides VPC Flow Logs with an IAM identity for writing network logs.
+resource "aws_iam_role" "vpc_flow_logs" {
+  name               = "${var.name_prefix}-vpc-flow-logs-role"
+  assume_role_policy = data.aws_iam_policy_document.vpc_flow_logs_assume_role.json
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.name_prefix}-vpc-flow-logs-role"
+    }
+  )
+}
+
+# Allows the VPC Flow Logs service to assume the dedicated publishing role.
+data "aws_iam_policy_document" "vpc_flow_logs_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["vpc-flow-logs.amazonaws.com"]
+    }
+  }
+}
+
+# Grants VPC Flow Logs permission to publish network records to CloudWatch Logs.
+data "aws_iam_policy_document" "vpc_flow_logs_permissions" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      "logs:DescribeLogStreams"
+    ]
+
+    resources = [
+      "arn:aws:logs:*:*:log-group:/aws/vpc/${var.name_prefix}-flow-logs:*"
+    ]
+  }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "logs:DescribeLogGroups"
+    ]
+
+    resources = ["*"]
+  }
+}
+
+# Attaches the CloudWatch publishing permissions to the VPC Flow Logs role.
+resource "aws_iam_role_policy" "vpc_flow_logs" {
+  name   = "${var.name_prefix}-vpc-flow-logs-policy"
+  role   = aws_iam_role.vpc_flow_logs.id
+  policy = data.aws_iam_policy_document.vpc_flow_logs_permissions.json
+}

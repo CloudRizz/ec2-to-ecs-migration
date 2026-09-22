@@ -37,6 +37,9 @@ resource "aws_lb" "this" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = var.public_subnet_ids
 
+  # Drops malformed HTTP headers before requests are forwarded to the application.
+  drop_invalid_header_fields = true
+
   tags = merge(
     var.tags,
     {

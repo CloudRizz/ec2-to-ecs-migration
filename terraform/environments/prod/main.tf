@@ -28,6 +28,9 @@ module "networking" {
   public_subnets  = var.public_subnets
   private_subnets = var.private_subnets
 
+  # Supplies the Flow Logs publishing role managed by the IAM module.
+  vpc_flow_logs_role_arn = module.iam.vpc_flow_logs_role_arn
+
   # Apply the same project/environment tags consistently to all resources.
   tags = local.common_tags
 }
@@ -96,3 +99,4 @@ module "observability" {
 
   tags = local.common_tags
 }
+
