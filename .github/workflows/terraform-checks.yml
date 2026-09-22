@@ -1,0 +1,46 @@
+# Validates Terraform configuration before changes can be merged into main.
+name: Terraform Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-checks.yml"
+
+# Provides the minimum permissions required to read repository contents.
+permissions:
+  contents: read
+
+jobs:
+  terraform-checks:
+    name: Terraform Format and Validate
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform/environments/prod
+
+    steps:
+      # Retrieves the repository contents for validation.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installs Terraform on the GitHub-hosted runner.
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.1"
+
+      # Checks Terraform formatting without modifying files.
+      - name: Terraform Format
+        run: terraform fmt -check -recursive ../..
+
+      # Downloads providers and modules without connecting to the production backend.
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      # Validates the Terraform configuration for syntax and internal consistency.
+      - name: Terraform Validate
+        run: terraform validate
