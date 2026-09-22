@@ -23,13 +23,15 @@ jobs:
         working-directory: terraform/environments/prod
 
     steps:
-      # Retrieves the repository contents for validation.
+      # Pins actions/checkout v4 to an immutable commit and prevents credential persistence.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
-      # Installs Terraform on the GitHub-hosted runner.
+      # Pins HashiCorp setup-terraform v3 to an immutable commit.
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
           terraform_version: "1.16.1"
 
