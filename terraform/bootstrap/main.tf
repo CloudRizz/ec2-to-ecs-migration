@@ -42,7 +42,7 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
 resource "aws_ssm_parameter" "state_bucket_name" {
   name        = "/${var.project_name}/bootstrap/state-bucket"
   description = "Terraform remote-state bucket used by the production deployment pipeline"
-  type        = "String"
+  type        = "SecureString" # Encrypts the backend discovery parameter at rest in Parameter Store.
   value       = aws_s3_bucket.terraform_state.bucket
 
   tags = {

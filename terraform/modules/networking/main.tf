@@ -221,6 +221,7 @@ resource "aws_route_table_association" "private" {
 # Stores VPC network flow records in CloudWatch for security and troubleshooting.
 
 resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
+  # checkov:skip=CKV_AWS_338:Seven-day retention is intentional for short-lived network diagnostics.
   name              = "/aws/vpc/${var.name_prefix}-flow-logs"
   retention_in_days = 7
 

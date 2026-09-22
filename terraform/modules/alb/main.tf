@@ -31,6 +31,7 @@ resource "aws_security_group" "alb" {
 
 # ALB
 resource "aws_lb" "this" {
+  # checkov:skip=CKV_AWS_150:Deletion protection is disabled so the short-lived environment can be destroyed cleanly.
   name               = "${var.name_prefix}-alb"
   internal           = false # make the ALB public/internet facing
   load_balancer_type = "application"
