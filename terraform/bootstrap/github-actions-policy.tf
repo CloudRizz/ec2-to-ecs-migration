@@ -297,6 +297,20 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       ]
     }
   }
+
+  # Allows GitHub Actions to discover the Terraform state bucket without listing AWS buckets.
+  statement {
+    sid    = "TerraformBackendDiscovery"
+    effect = "Allow"
+
+    actions = [
+      "ssm:GetParameter"
+    ]
+
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:*:parameter/${var.project_name}/bootstrap/state-bucket"
+    ]
+  }
 }
 
 # Creates the customer-managed IAM policy used by the GitHub deployment role.
