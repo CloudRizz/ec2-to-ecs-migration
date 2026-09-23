@@ -7,7 +7,7 @@ resource "aws_iam_openid_connect_provider" "github" {
   ]
 }
 
-# Builds the trust policy that allows only this repository's production environment to authenticate GitHub OIDC.
+# Builds the trust policy used by the GitHub Actions deployment workflow.
 data "aws_iam_policy_document" "github_actions_trust" {
   statement {
     effect = "Allow"
@@ -24,7 +24,7 @@ data "aws_iam_policy_document" "github_actions_trust" {
       ]
     }
 
-    # Ensures the OIDC token was issued for AWS STS.
+    # Ensures the OIDC token was issued specifically for AWS STS.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
@@ -34,19 +34,20 @@ data "aws_iam_policy_document" "github_actions_trust" {
       ]
     }
 
-    # Restricts access to the production environment in this specific GitHub repository.
+    # Allows planning from main and protected deployment from the production environment.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
 
       values = [
+        "repo:CloudRizz/ec2-to-ecs-migration:ref:refs/heads/main",
         "repo:CloudRizz/ec2-to-ecs-migration:environment:production"
       ]
     }
   }
 }
 
-# Creates the AWS role that approved GitHub Actions deployments can assume.
+# Creates the AWS role assumed by GitHub Actions using temporary OIDC credentials.
 resource "aws_iam_role" "github_actions" {
   name = "${var.project_name}-github-actions"
 

@@ -1,0 +1,288 @@
+# Builds, scans and deploys the ECS application after approved changes reach main.
+name: Deploy ECS Production
+
+on:
+  push:
+    branches:
+      - main
+
+# Prevents concurrent production deployments from modifying the same Terraform state.
+concurrency:
+  group: ecs-production
+  cancel-in-progress: false
+
+# Denies unnecessary GitHub token permissions by default.
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-west-2
+  ECR_REPOSITORY: ec2-to-ecs-migration-prod-app
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Build, scan and push the container image
+  # ---------------------------------------------------------------------------
+
+  build-and-push:
+    name: Build, Scan and Push Image
+    runs-on: ubuntu-latest
+
+    # Allows this main-branch job to request temporary AWS credentials using OIDC.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      # Checks out the exact commit that triggered this deployment.
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      # Builds the application locally before anything is pushed to AWS.
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag "legacy-api:${GITHUB_SHA}" \
+            ./app
+
+      # Scans the locally built image and blocks critical vulnerabilities.
+      - name: Scan Docker image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: legacy-api:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+
+      # Exchanges the GitHub OIDC token for temporary AWS credentials.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Discovers the persistent bootstrap-owned ECR repository.
+      - name: Discover ECR repository
+        id: ecr
+        run: |
+          ECR_URL=$(aws ecr describe-repositories \
+            --repository-names "${ECR_REPOSITORY}" \
+            --region "${AWS_REGION}" \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+
+          echo "url=${ECR_URL}" >> "${GITHUB_OUTPUT}"
+
+      # Authenticates Docker to ECR using temporary AWS credentials.
+      - name: Login to Amazon ECR
+        env:
+          ECR_URL: ${{ steps.ecr.outputs.url }}
+        run: |
+          aws ecr get-login-password \
+            --region "${AWS_REGION}" |
+          docker login \
+            --username AWS \
+            --password-stdin \
+            "${ECR_URL}"
+
+      # Pushes an immutable Git SHA image that Terraform will deploy to ECS.
+      - name: Push image to ECR
+        env:
+          ECR_URL: ${{ steps.ecr.outputs.url }}
+        run: |
+          docker tag \
+            "legacy-api:${GITHUB_SHA}" \
+            "${ECR_URL}:${GITHUB_SHA}"
+
+          docker push \
+            "${ECR_URL}:${GITHUB_SHA}"
+
+  # ---------------------------------------------------------------------------
+  # 2. Generate the production Terraform plan
+  # ---------------------------------------------------------------------------
+
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    # Allows the main branch to authenticate to AWS for planning only.
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        working-directory: terraform/environments/prod
+
+    steps:
+      # Checks out the same immutable commit used to build the container image.
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      # Installs the Terraform version used by this project.
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: "1.16.1"
+
+      # Exchanges the GitHub OIDC token for temporary AWS credentials.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Discovers the persistent bootstrap resources required for deployment.
+      - name: Discover deployment prerequisites
+        id: prerequisites
+        run: |
+          STATE_BUCKET=$(aws ssm get-parameter \
+            --name "/ec2-to-ecs-migration/bootstrap/state-bucket" \
+            --with-decryption \
+            --region "${AWS_REGION}" \
+            --query 'Parameter.Value' \
+            --output text)
+
+          ECR_URL=$(aws ecr describe-repositories \
+            --repository-names "${ECR_REPOSITORY}" \
+            --region "${AWS_REGION}" \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+
+          echo "state_bucket=${STATE_BUCKET}" >> "${GITHUB_OUTPUT}"
+          echo "ecr_url=${ECR_URL}" >> "${GITHUB_OUTPUT}"
+
+      # Connects Terraform to the persistent production S3 backend.
+      - name: Terraform Init
+        env:
+          STATE_BUCKET: ${{ steps.prerequisites.outputs.state_bucket }}
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${STATE_BUCKET}"
+
+      # Creates the exact infrastructure plan that will be approved before deployment.
+      - name: Terraform Plan
+        env:
+          ECR_URL: ${{ steps.prerequisites.outputs.ecr_url }}
+        run: |
+          terraform plan \
+            -input=false \
+            -out=tfplan \
+            -var="image_tag=${GITHUB_SHA}" \
+            -var="ecr_repository_url=${ECR_URL}"
+
+      # Stores the exact Terraform plan for the protected production apply job.
+      - name: Upload Terraform plan
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: terraform-plan-${{ github.sha }}
+          path: terraform/environments/prod/tfplan
+          retention-days: 1
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 3. Manual approval and production deployment
+  # ---------------------------------------------------------------------------
+
+  terraform-apply:
+    name: Approve and Deploy Production
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+
+    # Pauses this job until the required production reviewer approves deployment.
+    environment:
+      name: production
+
+    # Allows the protected production job to authenticate to AWS using OIDC.
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        working-directory: terraform/environments/prod
+
+    steps:
+      # Checks out the exact commit that generated the reviewed Terraform plan.
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      # Installs the same Terraform version used when generating the plan.
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: "1.16.1"
+
+      # Exchanges the approved production OIDC token for temporary AWS credentials.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Downloads the exact Terraform plan generated before manual approval.
+      - name: Download Terraform plan
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: terraform-plan-${{ github.sha }}
+          path: terraform/environments/prod
+
+      # Discovers the existing production Terraform backend.
+      - name: Discover Terraform backend
+        id: backend
+        run: |
+          STATE_BUCKET=$(aws ssm get-parameter \
+            --name "/ec2-to-ecs-migration/bootstrap/state-bucket" \
+            --with-decryption \
+            --region "${AWS_REGION}" \
+            --query 'Parameter.Value' \
+            --output text)
+
+          echo "state_bucket=${STATE_BUCKET}" >> "${GITHUB_OUTPUT}"
+
+      # Reinitialises the backend on the fresh production runner.
+      - name: Terraform Init
+        env:
+          STATE_BUCKET: ${{ steps.backend.outputs.state_bucket }}
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${STATE_BUCKET}"
+
+      # Applies only the Terraform plan that was generated before manual approval.
+      # Changing the immutable image tag registers a new ECS task definition revision.
+      - name: Terraform Apply
+        run: |
+          terraform apply \
+            -input=false \
+            tfplan
+
+      # Waits until ECS reports that the new service deployment has stabilised.
+      - name: Wait for ECS deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster ec2-to-ecs-migration-prod-cluster \
+            --services ec2-to-ecs-migration-prod-service \
+            --region "${AWS_REGION}"
+
+      # Verifies traffic can reach the deployed Flask application through the ALB.
+      - name: Verify application health
+        run: |
+          ALB_DNS=$(terraform output -raw alb_dns_name)
+
+          curl \
+            --fail \
+            --retry 12 \
+            --retry-delay 10 \
+            --retry-all-errors \
+            "http://${ALB_DNS}/health"
+            
