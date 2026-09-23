@@ -72,3 +72,8 @@ variable "image_tag" {
   type        = string
 }
 
+# Receives the persistent ECR repository created by the bootstrap stack.
+variable "ecr_repository_url" {
+  description = "URL of the bootstrap-owned ECR repository containing application images"
+  type        = string
+}

@@ -75,3 +75,20 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
     }
   }
 }
+
+# Creates the persistent ECR repository required before application deployments can push images.
+module "ecr" {
+  source = "../modules/ecr"
+
+  # Uses the same repository name previously owned by the production environment.
+  repository_name = "${var.project_name}-prod-app"
+
+  # Identifies the repository as a persistent deployment prerequisite.
+  tags = {
+    Project     = var.project_name
+    Environment = "prod"
+    ManagedBy   = "Terraform"
+    Purpose     = "Application image repository"
+  }
+}
+
