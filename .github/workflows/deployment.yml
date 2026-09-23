@@ -6,7 +6,7 @@ on:
     branches:
       - main
 
-# Prevents two production deployments from modifying the same Terraform state concurrently.
+# Prevents concurrent production deployments from modifying the same Terraform state.
 concurrency:
   group: ecs-production
   cancel-in-progress: false
@@ -40,11 +40,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # Builds the application locally before any image is pushed to AWS.
+      # Builds the application locally before anything is pushed to AWS.
       - name: Build Docker image
         run: |
           docker build \
-            --tag legacy-api:${GITHUB_SHA} \
+            --tag "legacy-api:${GITHUB_SHA}" \
             ./app
 
       # Scans the locally built image and blocks critical vulnerabilities.
@@ -75,26 +75,29 @@ jobs:
 
           echo "url=${ECR_URL}" >> "${GITHUB_OUTPUT}"
 
-      # Authenticates Docker to ECR using the temporary AWS credentials.
+      # Authenticates Docker to ECR using temporary AWS credentials.
       - name: Login to Amazon ECR
+        env:
+          ECR_URL: ${{ steps.ecr.outputs.url }}
         run: |
           aws ecr get-login-password \
             --region "${AWS_REGION}" |
           docker login \
             --username AWS \
             --password-stdin \
-            "${{ steps.ecr.outputs.url }}"
+            "${ECR_URL}"
 
       # Pushes an immutable Git SHA image that Terraform will deploy to ECS.
       - name: Push image to ECR
+        env:
+          ECR_URL: ${{ steps.ecr.outputs.url }}
         run: |
           docker tag \
             "legacy-api:${GITHUB_SHA}" \
-            "${{ steps.ecr.outputs.url }}:${GITHUB_SHA}"
+            "${ECR_URL}:${GITHUB_SHA}"
 
           docker push \
-            "${{ steps.ecr.outputs.url }}:${GITHUB_SHA}"
-
+            "${ECR_URL}:${GITHUB_SHA}"
 
   # ---------------------------------------------------------------------------
   # 2. Generate the production Terraform plan
@@ -105,7 +108,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
 
-    # Allows the main-branch plan job to authenticate to AWS using OIDC.
+    # Allows the main branch to authenticate to AWS for planning only.
     permissions:
       contents: read
       id-token: write
@@ -121,7 +124,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Installs the Terraform version used by the project.
+      # Installs the Terraform version used by this project.
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
@@ -134,7 +137,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Discovers persistent bootstrap resources required by the production deployment.
+      # Discovers the persistent bootstrap resources required for deployment.
       - name: Discover deployment prerequisites
         id: prerequisites
         run: |
@@ -154,23 +157,27 @@ jobs:
           echo "state_bucket=${STATE_BUCKET}" >> "${GITHUB_OUTPUT}"
           echo "ecr_url=${ECR_URL}" >> "${GITHUB_OUTPUT}"
 
-      # Connects Terraform to the persistent S3 production backend.
+      # Connects Terraform to the persistent production S3 backend.
       - name: Terraform Init
+        env:
+          STATE_BUCKET: ${{ steps.prerequisites.outputs.state_bucket }}
         run: |
           terraform init \
             -input=false \
-            -backend-config="bucket=${{ steps.prerequisites.outputs.state_bucket }}"
+            -backend-config="bucket=${STATE_BUCKET}"
 
-      # Creates the exact infrastructure plan that will be reviewed before deployment.
+      # Creates the exact infrastructure plan that will be approved before deployment.
       - name: Terraform Plan
+        env:
+          ECR_URL: ${{ steps.prerequisites.outputs.ecr_url }}
         run: |
           terraform plan \
             -input=false \
             -out=tfplan \
             -var="image_tag=${GITHUB_SHA}" \
-            -var="ecr_repository_url=${{ steps.prerequisites.outputs.ecr_url }}"
+            -var="ecr_repository_url=${ECR_URL}"
 
-      # Stores the reviewed binary plan for the protected apply job.
+      # Stores the exact Terraform plan for the protected production apply job.
       - name: Upload Terraform plan
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -178,7 +185,6 @@ jobs:
           path: terraform/environments/prod/tfplan
           retention-days: 1
           if-no-files-found: error
-
 
   # ---------------------------------------------------------------------------
   # 3. Manual approval and production deployment
@@ -189,7 +195,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: terraform-plan
 
-    # The production environment pauses here until the required reviewer approves.
+    # Pauses this job until the required production reviewer approves deployment.
     environment:
       name: production
 
@@ -223,14 +229,14 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Downloads the exact Terraform plan created before manual approval.
+      # Downloads the exact Terraform plan generated before manual approval.
       - name: Download Terraform plan
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: terraform-plan-${{ github.sha }}
           path: terraform/environments/prod
 
-      # Discovers the existing backend used by the saved production plan.
+      # Discovers the existing production Terraform backend.
       - name: Discover Terraform backend
         id: backend
         run: |
@@ -243,17 +249,22 @@ jobs:
 
           echo "state_bucket=${STATE_BUCKET}" >> "${GITHUB_OUTPUT}"
 
-      # Reinitialises the backend on the fresh apply runner.
+      # Reinitialises the backend on the fresh production runner.
       - name: Terraform Init
+        env:
+          STATE_BUCKET: ${{ steps.backend.outputs.state_bucket }}
         run: |
           terraform init \
             -input=false \
-            -backend-config="bucket=${{ steps.backend.outputs.state_bucket }}"
+            -backend-config="bucket=${STATE_BUCKET}"
 
       # Applies only the Terraform plan that was generated before manual approval.
-      # Updating the immutable image tag registers a new ECS task definition revision.
+      # Changing the immutable image tag registers a new ECS task definition revision.
       - name: Terraform Apply
-        run: terraform apply -input=false tfplan
+        run: |
+          terraform apply \
+            -input=false \
+            tfplan
 
       # Waits until ECS reports that the new service deployment has stabilised.
       - name: Wait for ECS deployment
@@ -263,7 +274,7 @@ jobs:
             --services ec2-to-ecs-migration-prod-service \
             --region "${AWS_REGION}"
 
-      # Verifies that traffic reaches the deployed Flask application's health endpoint.
+      # Verifies traffic can reach the deployed Flask application through the ALB.
       - name: Verify application health
         run: |
           ALB_DNS=$(terraform output -raw alb_dns_name)
@@ -274,3 +285,4 @@ jobs:
             --retry-delay 10 \
             --retry-all-errors \
             "http://${ALB_DNS}/health"
+            
