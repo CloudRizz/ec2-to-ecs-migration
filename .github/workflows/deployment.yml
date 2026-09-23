@@ -56,6 +56,35 @@ jobs:
           exit-code: "1"
           severity: CRITICAL
 
+      # Temporarily displays non-secret OIDC claims to verify the AWS trust relationship.
+      - name: Inspect GitHub OIDC claims
+        run: |
+          RESPONSE=$(curl \
+            --silent \
+            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+
+          TOKEN=$(echo "${RESPONSE}" | python3 -c \
+            'import json,sys; print(json.load(sys.stdin)["value"])')
+
+          PAYLOAD=$(echo "${TOKEN}" | cut -d '.' -f2)
+
+          python3 - "${PAYLOAD}" <<'PY'
+          import base64
+          import json
+          import sys
+
+          payload = sys.argv[1]
+          payload += "=" * (-len(payload) % 4)
+
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+
+          print("OIDC subject:", claims.get("sub"))
+          print("OIDC audience:", claims.get("aud"))
+          print("Repository:", claims.get("repository"))
+          print("Ref:", claims.get("ref"))
+          PY
+
       # Exchanges the GitHub OIDC token for temporary AWS credentials.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
@@ -108,7 +137,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
 
-    # Allows the main branch to authenticate to AWS for planning only.
+    # Allows the main branch to authenticate to AWS for Terraform planning.
     permissions:
       contents: read
       id-token: write
