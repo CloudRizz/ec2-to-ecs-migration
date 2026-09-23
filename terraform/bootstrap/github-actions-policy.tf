@@ -241,14 +241,15 @@ data "aws_iam_policy_document" "github_actions_platform" {
     ]
   }
 
-  # Allows Terraform to register new task definition revisions.
+  # Allows Terraform to register and tag new task definition revisions.
   # AWS requires wildcard resource scope because the new task definition ARN does not yet exist.
   statement {
     sid    = "RegisterECSTaskDefinition"
     effect = "Allow"
 
     actions = [
-      "ecs:RegisterTaskDefinition"
+      "ecs:RegisterTaskDefinition",
+      "ecs:TagResource"
     ]
 
     resources = ["*"]
@@ -261,7 +262,6 @@ data "aws_iam_policy_document" "github_actions_platform" {
 
     actions = [
       "ecs:DeregisterTaskDefinition",
-      "ecs:TagResource",
       "ecs:UntagResource"
     ]
 
@@ -334,9 +334,11 @@ data "aws_iam_policy_document" "github_actions_platform" {
     sid    = "TerraformAutoScaling"
     effect = "Allow"
 
+    # Allows Terraform to manage and inspect tags on ECS desired-count scaling targets.
     actions = [
       "application-autoscaling:DeleteScalingPolicy",
       "application-autoscaling:DeregisterScalableTarget",
+      "application-autoscaling:ListTagsForResource",
       "application-autoscaling:PutScalingPolicy",
       "application-autoscaling:RegisterScalableTarget",
       "application-autoscaling:TagResource",
@@ -474,6 +476,7 @@ data "aws_iam_policy_document" "github_actions_iam" {
       "iam:GetRole",
       "iam:GetRolePolicy",
       "iam:ListAttachedRolePolicies",
+      "iam:ListInstanceProfilesForRole",
       "iam:ListRolePolicies",
       "iam:PutRolePolicy",
       "iam:TagRole",
