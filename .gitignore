@@ -31,6 +31,10 @@ Thumbs.db
 # Terraform archive files
 **/app.zip
 
+# Terraform saved plan files are generated artifacts and should not be committed.
+**/tfplan
+**/*.tfplan
+
 # Logs
 *.log
 logs/
