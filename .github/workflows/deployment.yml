@@ -2,9 +2,13 @@
 name: Deploy ECS Production
 
 on:
+  # Automatically deploys changes merged into main.
   push:
     branches:
       - main
+
+  # Allows an authorised manual deployment without creating a dummy commit.
+  workflow_dispatch:
 
 # Prevents concurrent production deployments from modifying the same Terraform state.
 concurrency:
@@ -28,7 +32,7 @@ jobs:
     name: Build, Scan and Push Image
     runs-on: ubuntu-latest
 
-    # Allows this main-branch job to request temporary AWS credentials using OIDC.
+    # Allows this job to request temporary AWS credentials using GitHub OIDC.
     permissions:
       contents: read
       id-token: write
@@ -47,7 +51,7 @@ jobs:
             --tag "legacy-api:${GITHUB_SHA}" \
             ./app
 
-      # Scans the locally built image and blocks critical vulnerabilities.
+      # Scans the image and blocks deployment when critical vulnerabilities are found.
       - name: Scan Docker image with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
@@ -55,35 +59,6 @@ jobs:
           format: table
           exit-code: "1"
           severity: CRITICAL
-
-      # Temporarily displays non-secret OIDC claims to verify the AWS trust relationship.
-      - name: Inspect GitHub OIDC claims
-        run: |
-          RESPONSE=$(curl \
-            --silent \
-            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
-
-          TOKEN=$(echo "${RESPONSE}" | python3 -c \
-            'import json,sys; print(json.load(sys.stdin)["value"])')
-
-          PAYLOAD=$(echo "${TOKEN}" | cut -d '.' -f2)
-
-          python3 - "${PAYLOAD}" <<'PY'
-          import base64
-          import json
-          import sys
-
-          payload = sys.argv[1]
-          payload += "=" * (-len(payload) % 4)
-
-          claims = json.loads(base64.urlsafe_b64decode(payload))
-
-          print("OIDC subject:", claims.get("sub"))
-          print("OIDC audience:", claims.get("aud"))
-          print("Repository:", claims.get("repository"))
-          print("Ref:", claims.get("ref"))
-          PY
 
       # Exchanges the GitHub OIDC token for temporary AWS credentials.
       - name: Configure AWS credentials
@@ -116,17 +91,29 @@ jobs:
             --password-stdin \
             "${ECR_URL}"
 
-      # Pushes an immutable Git SHA image that Terraform will deploy to ECS.
+      # Reuses an existing immutable SHA image or pushes it when it does not yet exist.
       - name: Push image to ECR
         env:
           ECR_URL: ${{ steps.ecr.outputs.url }}
         run: |
-          docker tag \
-            "legacy-api:${GITHUB_SHA}" \
-            "${ECR_URL}:${GITHUB_SHA}"
+          EXISTING_TAG=$(aws ecr batch-get-image \
+            --repository-name "${ECR_REPOSITORY}" \
+            --image-ids "imageTag=${GITHUB_SHA}" \
+            --region "${AWS_REGION}" \
+            --query 'images[0].imageId.imageTag' \
+            --output text)
 
-          docker push \
-            "${ECR_URL}:${GITHUB_SHA}"
+          if [ "${EXISTING_TAG}" = "${GITHUB_SHA}" ]; then
+            echo "Image ${GITHUB_SHA} already exists in ECR."
+            echo "Reusing existing immutable image."
+          else
+            docker tag \
+              "legacy-api:${GITHUB_SHA}" \
+              "${ECR_URL}:${GITHUB_SHA}"
+
+            docker push \
+              "${ECR_URL}:${GITHUB_SHA}"
+          fi
 
   # ---------------------------------------------------------------------------
   # 2. Generate the production Terraform plan
@@ -287,15 +274,14 @@ jobs:
             -input=false \
             -backend-config="bucket=${STATE_BUCKET}"
 
-      # Applies only the Terraform plan that was generated before manual approval.
-      # Changing the immutable image tag registers a new ECS task definition revision.
+      # Applies only the Terraform plan generated before manual approval.
       - name: Terraform Apply
         run: |
           terraform apply \
             -input=false \
             tfplan
 
-      # Waits until ECS reports that the new service deployment has stabilised.
+      # Waits until ECS reports that the production service has stabilised.
       - name: Wait for ECS deployment
         run: |
           aws ecs wait services-stable \
