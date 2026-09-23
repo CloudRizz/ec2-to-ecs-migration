@@ -19,6 +19,7 @@ data "aws_iam_policy_document" "github_actions_state" {
     effect = "Allow"
 
     actions = [
+      "s3:GetBucketLocation",
       "s3:GetBucketVersioning",
       "s3:ListBucket"
     ]
@@ -118,6 +119,8 @@ data "aws_iam_policy_document" "github_actions_networking" {
       "ec2:ModifySubnetAttribute",
       "ec2:ModifyVpcAttribute",
       "ec2:ReleaseAddress",
+      "ec2:ReplaceRoute",
+      "ec2:ReplaceRouteTableAssociation",
       "ec2:RevokeSecurityGroupEgress",
       "ec2:RevokeSecurityGroupIngress"
     ]
@@ -158,8 +161,11 @@ data "aws_iam_policy_document" "github_actions_networking" {
       "elasticloadbalancing:DeleteTargetGroup",
       "elasticloadbalancing:ModifyListener",
       "elasticloadbalancing:ModifyLoadBalancerAttributes",
+      "elasticloadbalancing:ModifyTargetGroup",
       "elasticloadbalancing:ModifyTargetGroupAttributes",
-      "elasticloadbalancing:RemoveTags"
+      "elasticloadbalancing:RemoveTags",
+      "elasticloadbalancing:SetSecurityGroups",
+      "elasticloadbalancing:SetSubnets"
     ]
 
     resources = [
@@ -193,7 +199,7 @@ data "aws_iam_policy_document" "github_actions_platform" {
     ]
   }
 
-  # Allows Terraform to inspect task definitions because this API does not support resource-level scoping.
+  # Allows Terraform to inspect task definitions because this API requires broad read scope.
   statement {
     sid    = "DescribeECSTaskDefinition"
     effect = "Allow"
@@ -232,6 +238,7 @@ data "aws_iam_policy_document" "github_actions_platform" {
       "ecs:ListTagsForResource",
       "ecs:TagResource",
       "ecs:UntagResource",
+      "ecs:UpdateClusterSettings",
       "ecs:UpdateService"
     ]
 
@@ -241,13 +248,14 @@ data "aws_iam_policy_document" "github_actions_platform" {
     ]
   }
 
-  # Allows Terraform to register and tag new task definition revisions.
-  # AWS requires wildcard resource scope because the new task definition ARN does not yet exist.
+  # Allows Terraform to create, tag and deregister ECS task definition revisions.
+  # AWS evaluates task definition registration and deregistration using wildcard resource scope.
   statement {
-    sid    = "RegisterECSTaskDefinition"
+    sid    = "ManageECSTaskDefinitionLifecycle"
     effect = "Allow"
 
     actions = [
+      "ecs:DeregisterTaskDefinition",
       "ecs:RegisterTaskDefinition",
       "ecs:TagResource"
     ]
@@ -255,18 +263,17 @@ data "aws_iam_policy_document" "github_actions_platform" {
     resources = ["*"]
   }
 
-  # Allows Terraform to manage existing task definitions only for this project's family.
+  # Allows Terraform to remove tags only from this project's existing task definitions.
   statement {
-    sid    = "ManageECSTaskDefinitions"
+    sid    = "ManageECSTaskDefinitionTags"
     effect = "Allow"
 
     actions = [
-      "ecs:DeregisterTaskDefinition",
       "ecs:UntagResource"
     ]
 
     resources = [
-      "arn:aws:ecs:${var.aws_region}:*:task-definition/${var.project_name}-prod:*"
+      "arn:aws:ecs:${var.aws_region}:*:task-definition/${var.project_name}-prod-app:*"
     ]
   }
 
@@ -296,7 +303,7 @@ data "aws_iam_policy_document" "github_actions_platform" {
     ]
   }
 
-  # Allows GitHub Actions to push images only to this project's ECR repository.
+  # Allows GitHub Actions to inspect and push images only to this project's ECR repository.
   statement {
     sid    = "ECRImagePush"
     effect = "Allow"
@@ -329,13 +336,16 @@ data "aws_iam_policy_document" "github_actions_platform" {
     resources = ["*"]
   }
 
-  # Allows Terraform to read tags from Application Auto Scaling targets during state refresh.
+  # Allows Terraform to read and manage tags on project scalable targets.
+  # Tag APIs do not support the ECS namespace and scalable-dimension condition keys.
   statement {
-    sid    = "ReadAutoScalingTags"
+    sid    = "ManageAutoScalingTags"
     effect = "Allow"
 
     actions = [
-      "application-autoscaling:ListTagsForResource"
+      "application-autoscaling:ListTagsForResource",
+      "application-autoscaling:TagResource",
+      "application-autoscaling:UntagResource"
     ]
 
     resources = [
@@ -348,15 +358,12 @@ data "aws_iam_policy_document" "github_actions_platform" {
     sid    = "TerraformAutoScaling"
     effect = "Allow"
 
-    # Allows Terraform to manage and inspect tags on ECS desired-count scaling targets.
     actions = [
       "application-autoscaling:DeleteScalingPolicy",
       "application-autoscaling:DeregisterScalableTarget",
       "application-autoscaling:ListTagsForResource",
       "application-autoscaling:PutScalingPolicy",
-      "application-autoscaling:RegisterScalableTarget",
-      "application-autoscaling:TagResource",
-      "application-autoscaling:UntagResource"
+      "application-autoscaling:RegisterScalableTarget"
     ]
 
     resources = [
@@ -467,9 +474,11 @@ data "aws_iam_policy_document" "github_actions_iam" {
       "iam:DetachRolePolicy",
       "iam:GetRole",
       "iam:ListAttachedRolePolicies",
+      "iam:ListInstanceProfilesForRole",
       "iam:ListRolePolicies",
       "iam:TagRole",
-      "iam:UntagRole"
+      "iam:UntagRole",
+      "iam:UpdateAssumeRolePolicy"
     ]
 
     resources = [
@@ -494,7 +503,8 @@ data "aws_iam_policy_document" "github_actions_iam" {
       "iam:ListRolePolicies",
       "iam:PutRolePolicy",
       "iam:TagRole",
-      "iam:UntagRole"
+      "iam:UntagRole",
+      "iam:UpdateAssumeRolePolicy"
     ]
 
     resources = [
@@ -619,13 +629,13 @@ resource "aws_iam_role_policy_attachment" "github_actions_networking" {
   policy_arn = aws_iam_policy.github_actions_networking.arn
 }
 
-# Attaches platform permissions to the GitHub Actions OIDC role.
+# Attaches application-platform permissions to the GitHub Actions OIDC role.
 resource "aws_iam_role_policy_attachment" "github_actions_platform" {
   role       = aws_iam_role.github_actions.name
   policy_arn = aws_iam_policy.github_actions_platform.arn
 }
 
-# Attaches IAM management permissions to the GitHub Actions OIDC role.
+# Attaches IAM-management permissions to the GitHub Actions OIDC role.
 resource "aws_iam_role_policy_attachment" "github_actions_iam" {
   role       = aws_iam_role.github_actions.name
   policy_arn = aws_iam_policy.github_actions_iam.arn
