@@ -100,6 +100,7 @@ data "aws_iam_policy_document" "github_actions_networking" {
       "ec2:DeleteTags",
       "ec2:DeleteVpc",
       "ec2:DescribeAddresses",
+      "ec2:DescribeAddressesAttribute",
       "ec2:DescribeAvailabilityZones",
       "ec2:DescribeFlowLogs",
       "ec2:DescribeInternetGateways",
@@ -240,14 +241,26 @@ data "aws_iam_policy_document" "github_actions_platform" {
     ]
   }
 
-  # Allows Terraform to register and manage only this project's task-definition family.
+  # Allows Terraform to register new task definition revisions.
+  # AWS requires wildcard resource scope because the new task definition ARN does not yet exist.
   statement {
-    sid    = "TerraformECSTaskDefinitions"
+    sid    = "RegisterECSTaskDefinition"
+    effect = "Allow"
+
+    actions = [
+      "ecs:RegisterTaskDefinition"
+    ]
+
+    resources = ["*"]
+  }
+
+  # Allows Terraform to manage existing task definitions only for this project's family.
+  statement {
+    sid    = "ManageECSTaskDefinitions"
     effect = "Allow"
 
     actions = [
       "ecs:DeregisterTaskDefinition",
-      "ecs:RegisterTaskDefinition",
       "ecs:TagResource",
       "ecs:UntagResource"
     ]
@@ -460,6 +473,7 @@ data "aws_iam_policy_document" "github_actions_iam" {
       "iam:DeleteRolePolicy",
       "iam:GetRole",
       "iam:GetRolePolicy",
+      "iam:ListAttachedRolePolicies",
       "iam:ListRolePolicies",
       "iam:PutRolePolicy",
       "iam:TagRole",

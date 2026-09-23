@@ -40,8 +40,8 @@ data "aws_iam_policy_document" "github_actions_trust" {
       variable = "token.actions.githubusercontent.com:sub"
 
       values = [
-        "repo:CloudRizz/ec2-to-ecs-migration:ref:refs/heads/main",
-        "repo:CloudRizz/ec2-to-ecs-migration:environment:production"
+        "repo:CloudRizz@154384774/ec2-to-ecs-migration@1373423631:ref:refs/heads/main",
+        "repo:CloudRizz@154384774/ec2-to-ecs-migration@1373423631:environment:production"
       ]
     }
   }
