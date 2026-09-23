@@ -329,6 +329,20 @@ data "aws_iam_policy_document" "github_actions_platform" {
     resources = ["*"]
   }
 
+  # Allows Terraform to read tags from Application Auto Scaling targets during state refresh.
+  statement {
+    sid    = "ReadAutoScalingTags"
+    effect = "Allow"
+
+    actions = [
+      "application-autoscaling:ListTagsForResource"
+    ]
+
+    resources = [
+      "arn:aws:application-autoscaling:${var.aws_region}:*:scalable-target/*"
+    ]
+  }
+
   # Allows Terraform to manage only ECS desired-count scaling targets.
   statement {
     sid    = "TerraformAutoScaling"
