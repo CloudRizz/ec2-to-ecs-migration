@@ -73,3 +73,20 @@ variable "image_tag" {
   type        = string
   default     = null
 }
+
+variable "dns_target" {
+  description = "Controls whether migration.twrz.co.uk routes to ECS or the legacy EC2 deployment"
+  type        = string
+  default     = "ecs"
+
+  validation {
+    condition     = contains(["ecs", "legacy"], var.dns_target)
+    error_message = "dns_target must be either ecs or legacy."
+  }
+}
+
+variable "legacy_eip" {
+  description = "Elastic IP of the legacy EC2 deployment used for rollback"
+  type        = string
+  default     = "18.130.52.92"
+}

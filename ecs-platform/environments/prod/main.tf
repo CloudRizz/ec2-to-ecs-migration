@@ -58,16 +58,22 @@ data "aws_route53_zone" "primary" {
   private_zone = false
 }
 
-# Routes the migration hostname directly to the ECS Application Load Balancer.
 resource "aws_route53_record" "migration" {
   zone_id = data.aws_route53_zone.primary.zone_id
   name    = "migration.twrz.co.uk"
   type    = "A"
 
-  alias {
-    name                   = module.alb.alb_dns_name
-    zone_id                = module.alb.alb_zone_id
-    evaluate_target_health = true
+  ttl     = var.dns_target == "legacy" ? 60 : null
+  records = var.dns_target == "legacy" ? [var.legacy_eip] : null
+
+  dynamic "alias" {
+    for_each = var.dns_target == "ecs" ? [1] : []
+
+    content {
+      name                   = module.alb.alb_dns_name
+      zone_id                = module.alb.alb_zone_id
+      evaluate_target_health = true
+    }
   }
 }
 
