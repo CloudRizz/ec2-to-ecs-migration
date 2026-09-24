@@ -185,7 +185,8 @@ data "aws_iam_policy_document" "github_actions_networking" {
       "route53:GetHostedZone",
       "route53:ListHostedZones",
       "route53:ListHostedZonesByName",
-      "route53:ListResourceRecordSets"
+      "route53:ListResourceRecordSets",
+      "route53:ListTagsForResource"
     ]
 
     resources = ["*"]
