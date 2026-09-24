@@ -28,19 +28,24 @@ provider "aws" {
   }
 }
 
-# Data source for latest Amazon Linux 2023 AMI
-data "aws_ami" "amazon_linux" {
+# Finds the latest Ubuntu 22.04 LTS AMI to match the apt-based bootstrap script.
+data "aws_ami" "ubuntu" {
   most_recent = true
-  owners      = ["amazon"]
+  owners      = ["099720109477"]
 
   filter {
     name   = "name"
-    values = ["al2023-ami-*-x86_64"]
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
   }
 
   filter {
     name   = "virtualization-type"
     values = ["hvm"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
   }
 }
 
@@ -127,23 +132,6 @@ resource "aws_security_group" "ec2" {
     cidr_blocks = var.allowed_cidr_blocks
   }
 
-  ingress {
-    description = "HTTPS from allowed CIDR"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_cidr_blocks
-  }
-
-  ingress {
-    description     = "SSH from allowed CIDR"
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    cidr_blocks     = var.allowed_cidr_blocks
-    security_groups = []
-  }
-
   egress {
     description = "Allow all outbound traffic"
     from_port   = 0
@@ -193,8 +181,16 @@ resource "aws_iam_instance_profile" "ec2" {
 data "archive_file" "app" {
   type        = "zip"
   output_path = "${path.module}/app.zip"
-  source_dir  = "${path.module}/../"
-  excludes    = ["terraform", ".git", ".terraform", "*.tfstate", "*.tfstate.backup"]
+  source_dir  = "${path.module}/../.."
+  excludes = [
+    ".git",
+    ".github",
+    "ecs-platform",
+    "legacy/terraform",
+    "README.md",
+    "ARCHITECTURE.md",
+    "QUICKSTART.md"
+  ]
 }
 
 # Upload application to S3 bucket (for EC2 to download)
@@ -272,8 +268,21 @@ S3_KEY="app.zip"
 # Install dependencies
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get upgrade -y -qq
-apt-get install -y -qq awscli python3.11 python3.11-venv python3-pip nginx git curl wget unzip
+apt-get install -y -qq \
+  python3 \
+  python3-venv \
+  python3-pip \
+  nginx \
+  git \
+  curl \
+  wget \
+  unzip
+
+# Install AWS CLI v2
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install
+rm -rf /tmp/aws /tmp/awscliv2.zip
 
 # Create application directory
 mkdir -p $APP_DIR
@@ -292,8 +301,8 @@ chown -R ubuntu:ubuntu $APP_DIR
 
 # Run setup script (as root, script handles permissions)
 cd $APP_DIR
-chmod +x scripts/setup.sh
-bash $APP_DIR/scripts/setup.sh
+chmod +x "$APP_DIR/legacy/scripts/setup.sh"
+bash "$APP_DIR/legacy/scripts/setup.sh"
 
 # Signal completion
 echo "Application setup completed at $(date)" >> /var/log/user-data.log
@@ -302,7 +311,7 @@ echo "Application setup completed at $(date)" >> /var/log/user-data.log
 
 # EC2 Instance
 resource "aws_instance" "app" {
-  ami                    = data.aws_ami.amazon_linux.id
+  ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.ec2.id]

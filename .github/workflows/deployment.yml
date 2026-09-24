@@ -131,7 +131,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: terraform/environments/prod
+        working-directory: ecs-platform/environments/prod
 
     steps:
       # Checks out the same immutable commit used to build the container image.
@@ -198,7 +198,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: terraform-plan-${{ github.sha }}
-          path: terraform/environments/prod/tfplan
+          path: ecs-platform/environments/prod/tfplan
           retention-days: 1
           if-no-files-found: error
 
@@ -223,7 +223,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: terraform/environments/prod
+        working-directory: ecs-platform/environments/prod
 
     steps:
       # Checks out the exact commit that generated the reviewed Terraform plan.
@@ -250,7 +250,7 @@ jobs:
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: terraform-plan-${{ github.sha }}
-          path: terraform/environments/prod
+          path: ecs-platform/environments/prod
 
       # Discovers the existing production Terraform backend.
       - name: Discover Terraform backend

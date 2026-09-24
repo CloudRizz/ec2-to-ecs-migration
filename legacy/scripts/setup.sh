@@ -21,17 +21,20 @@ apt-get update -qq
 apt-get upgrade -y -qq
 
 # Install required system packages
+sudo rm -rf /var/lib/apt/lists/*
+sudo apt-get clean
+sudo apt-get update
 log "Installing system packages..."
-apt-get install -y -qq \
-    python3.11 \
-    python3.11-venv \
-    python3-pip \
-    nginx \
-    git \
-    curl \
-    wget \
-    htop \
-    unzip
+sudo apt-get install -y --fix-missing \
+  python3 \
+  python3-venv \
+  python3-pip \
+  nginx \
+  git \
+  curl \
+  wget \
+  htop \
+  unzip
 
 # Create application directory
 log "Creating application directory..."
@@ -47,7 +50,7 @@ log "Application files should be in $APP_DIR/app/"
 # Create Python virtual environment
 log "Setting up Python virtual environment..."
 cd "$APP_DIR"
-python3.11 -m venv venv
+python3 -m venv venv
 source venv/bin/activate
 
 # Install Python dependencies
@@ -63,8 +66,8 @@ fi
 
 # Configure Nginx
 log "Configuring Nginx..."
-if [ -f "$APP_DIR/nginx/default.conf" ]; then
-    cp "$APP_DIR/nginx/default.conf" /etc/nginx/sites-available/flask-app
+if [ -f "$APP_DIR/legacy/nginx/default.conf" ]; then
+    cp "$APP_DIR/legacy/nginx/default.conf" /etc/nginx/sites-available/flask-app
     ln -sf /etc/nginx/sites-available/flask-app /etc/nginx/sites-enabled/
     rm -f /etc/nginx/sites-enabled/default
 fi
@@ -74,8 +77,8 @@ nginx -t
 
 # Configure systemd service
 log "Configuring systemd service..."
-if [ -f "$APP_DIR/systemd/app.service" ]; then
-    cp "$APP_DIR/systemd/app.service" /etc/systemd/system/flask-app.service
+if [ -f "$APP_DIR/legacy/systemd/app.service" ]; then
+    cp "$APP_DIR/legacy/systemd/app.service" /etc/systemd/system/flask-app.service
     systemctl daemon-reload
 fi
 
