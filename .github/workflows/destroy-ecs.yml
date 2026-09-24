@@ -1,0 +1,101 @@
+name: Destroy ECS Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DESTROY to confirm ECS production teardown'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-2
+
+jobs:
+  validate:
+    name: Validate Destroy Request
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [ "${CONFIRMATION}" != "DESTROY" ]; then
+            echo "Confirmation must be exactly: DESTROY"
+            exit 1
+          fi
+
+  destroy:
+    name: Approve and Destroy ECS Production
+    runs-on: ubuntu-latest
+    needs: validate
+
+    environment:
+      name: production
+
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        working-directory: ecs-platform/environments/prod
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: "1.16.1"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Discover Terraform backend
+        id: backend
+        run: |
+          STATE_BUCKET=$(aws ssm get-parameter \
+            --name "/ec2-to-ecs-migration/bootstrap/state-bucket" \
+            --with-decryption \
+            --region "${AWS_REGION}" \
+            --query 'Parameter.Value' \
+            --output text)
+
+          echo "state_bucket=${STATE_BUCKET}" >> "${GITHUB_OUTPUT}"
+
+      - name: Terraform Init
+        env:
+          STATE_BUCKET: ${{ steps.backend.outputs.state_bucket }}
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${STATE_BUCKET}"
+
+      - name: Terraform Destroy Plan
+        run: |
+          terraform plan \
+            -destroy \
+            -input=false \
+            -out=destroy.tfplan \
+            -var="image_tag=${GITHUB_SHA}"
+
+      - name: Terraform Destroy
+        run: |
+          terraform apply \
+            -input=false \
+            destroy.tfplan
