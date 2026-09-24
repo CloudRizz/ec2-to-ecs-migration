@@ -11,7 +11,7 @@ variable "project_name" {
 }
 
 variable "environment" {
-  description = "Deployment Environment"
+  description = "Deployment environment"
   type        = string
   default     = "prod"
 }
@@ -61,19 +61,15 @@ variable "private_subnets" {
   }
 }
 variable "tags" {
-  description = "additional tages to merge with the default project tags"
+  description = "additional tags to merge with the default project tags"
   type        = map(string)
   default     = {}
 }
 
-# Immutable ECR image tag deployed to the ECS service.
+# Optional immutable image tag.
+# CI/CD supplies the Git commit SHA. Local runs fall back to the latest ECR image.
 variable "image_tag" {
-  description = "Immutable ECR image tag deployed to ECS"
+  description = "Optional immutable ECR image tag deployed to ECS"
   type        = string
-}
-
-# Receives the persistent ECR repository created by the bootstrap stack.
-variable "ecr_repository_url" {
-  description = "URL of the bootstrap-owned ECR repository containing application images"
-  type        = string
+  default     = null
 }

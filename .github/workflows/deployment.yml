@@ -164,14 +164,7 @@ jobs:
             --query 'Parameter.Value' \
             --output text)
 
-          ECR_URL=$(aws ecr describe-repositories \
-            --repository-names "${ECR_REPOSITORY}" \
-            --region "${AWS_REGION}" \
-            --query 'repositories[0].repositoryUri' \
-            --output text)
-
           echo "state_bucket=${STATE_BUCKET}" >> "${GITHUB_OUTPUT}"
-          echo "ecr_url=${ECR_URL}" >> "${GITHUB_OUTPUT}"
 
       # Connects Terraform to the persistent production S3 backend.
       - name: Terraform Init
@@ -184,14 +177,11 @@ jobs:
 
       # Creates the exact infrastructure plan that will be approved before deployment.
       - name: Terraform Plan
-        env:
-          ECR_URL: ${{ steps.prerequisites.outputs.ecr_url }}
         run: |
           terraform plan \
             -input=false \
             -out=tfplan \
-            -var="image_tag=${GITHUB_SHA}" \
-            -var="ecr_repository_url=${ECR_URL}"
+            -var="image_tag=${GITHUB_SHA}"
 
       # Stores the exact Terraform plan for the protected production apply job.
       - name: Upload Terraform plan
