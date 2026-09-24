@@ -112,10 +112,12 @@ data "aws_iam_policy_document" "github_actions_networking" {
       "ec2:DescribeSecurityGroupRules",
       "ec2:DescribeSecurityGroups",
       "ec2:DescribeSubnets",
+      "ec2:DescribeTags",
       "ec2:DescribeVpcAttribute",
       "ec2:DescribeVpcs",
       "ec2:DetachInternetGateway",
       "ec2:DisassociateRouteTable",
+      "ec2:DisassociateAddress",
       "ec2:ModifySubnetAttribute",
       "ec2:ModifyVpcAttribute",
       "ec2:ReleaseAddress",
@@ -140,7 +142,8 @@ data "aws_iam_policy_document" "github_actions_networking" {
       "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeTags",
       "elasticloadbalancing:DescribeTargetGroupAttributes",
-      "elasticloadbalancing:DescribeTargetGroups"
+      "elasticloadbalancing:DescribeTargetGroups",
+      "elasticloadbalancing:DescribeTargetHealth"
     ]
 
     resources = ["*"]
