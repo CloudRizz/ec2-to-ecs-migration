@@ -183,6 +183,7 @@ data "aws_iam_policy_document" "github_actions_networking" {
 
     actions = [
       "route53:GetHostedZone",
+      "route53:ListHostedZones",
       "route53:ListHostedZonesByName",
       "route53:ListResourceRecordSets"
     ]
@@ -336,7 +337,8 @@ data "aws_iam_policy_document" "github_actions_platform" {
     effect = "Allow"
 
     actions = [
-      "ecr:DescribeRepositories"
+      "ecr:DescribeRepositories",
+      "ecr:ListTagsForResource"
     ]
 
     resources = [
