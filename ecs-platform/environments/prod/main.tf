@@ -56,6 +56,25 @@ module "iam" {
   tags        = local.common_tags
 }
 
+# Persistent bootstrap-owned ECR repository.
+data "aws_ecr_repository" "app" {
+  name = "${var.project_name}-${var.environment}-app"
+}
+
+# Used only when image_tag is not explicitly supplied.
+data "aws_ecr_image" "latest" {
+  repository_name = data.aws_ecr_repository.app.name
+  most_recent     = true
+}
+
+locals {
+  container_image = var.image_tag != null ? (
+    "${data.aws_ecr_repository.app.repository_url}:${var.image_tag}"
+    ) : (
+    "${data.aws_ecr_repository.app.repository_url}@${data.aws_ecr_image.latest.image_digest}"
+  )
+}
+
 # Runs the containerised Flask API on Fargate behind the public ALB.
 module "ecs" {
   source = "../../modules/ecs"
@@ -68,7 +87,7 @@ module "ecs" {
   target_group_arn      = module.alb.target_group_arn
 
   # Deploys the immutable image from the persistent bootstrap-owned ECR repository.
-  container_image    = "${var.ecr_repository_url}:${var.image_tag}"
+  container_image    = local.container_image
   execution_role_arn = module.iam.ecs_task_execution_role_arn
   task_role_arn      = module.iam.ecs_task_role_arn
 
