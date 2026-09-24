@@ -10,6 +10,12 @@ output "alb_dns_name" {
   value       = aws_lb.this.dns_name
 }
 
+# Load balancer Route53 hosted zone ID
+output "alb_zone_id" {
+  description = "Route53 hosted zone ID of the Application Load Balancer"
+  value       = aws_lb.this.zone_id
+}
+
 # Exposes the target group ARN used to register ECS Fargate tasks.
 output "target_group_arn" {
   description = "ARN of the application target group"

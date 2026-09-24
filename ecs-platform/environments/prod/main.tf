@@ -48,6 +48,29 @@ module "alb" {
   tags = local.common_tags
 }
 
+# =============================================================================
+# Route53 DNS Cutover
+# =============================================================================
+
+# Discovers the existing public hosted zone for the migration domain.
+data "aws_route53_zone" "primary" {
+  name         = "twrz.co.uk"
+  private_zone = false
+}
+
+# Routes the migration hostname directly to the ECS Application Load Balancer.
+resource "aws_route53_record" "migration" {
+  zone_id = data.aws_route53_zone.primary.zone_id
+  name    = "migration.twrz.co.uk"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+}
+
 # Provides separate least-privilege roles for Fargate and the application.
 module "iam" {
   source = "../../modules/iam"

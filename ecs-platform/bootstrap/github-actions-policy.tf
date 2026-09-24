@@ -174,6 +174,47 @@ data "aws_iam_policy_document" "github_actions_networking" {
       "arn:aws:elasticloadbalancing:${var.aws_region}:*:targetgroup/${var.project_name}-prod-tg/*"
     ]
   }
+
+  # Allows Terraform to discover the existing public Route53 hosted zone
+  # and inspect DNS records during planning and refresh.
+  statement {
+    sid    = "DescribeRoute53"
+    effect = "Allow"
+
+    actions = [
+      "route53:GetHostedZone",
+      "route53:ListHostedZonesByName",
+      "route53:ListResourceRecordSets"
+    ]
+
+    resources = ["*"]
+  }
+
+  # Allows Terraform to manage DNS records only inside the twrz.co.uk hosted zone.
+  statement {
+    sid    = "ManageMigrationDNS"
+    effect = "Allow"
+
+    actions = [
+      "route53:ChangeResourceRecordSets"
+    ]
+
+    resources = [
+      "arn:aws:route53:::hostedzone/Z0280982DGM72ZMRTH0P"
+    ]
+  }
+
+  # Allows Terraform to inspect the status of Route53 DNS changes.
+  statement {
+    sid    = "ReadRoute53Changes"
+    effect = "Allow"
+
+    actions = [
+      "route53:GetChange"
+    ]
+
+    resources = ["*"]
+  }
 }
 
 
@@ -312,6 +353,7 @@ data "aws_iam_policy_document" "github_actions_platform" {
       "ecr:BatchCheckLayerAvailability",
       "ecr:BatchGetImage",
       "ecr:CompleteLayerUpload",
+      "ecr:DescribeImages",
       "ecr:GetDownloadUrlForLayer",
       "ecr:InitiateLayerUpload",
       "ecr:PutImage",
