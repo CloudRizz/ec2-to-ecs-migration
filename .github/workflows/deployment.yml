@@ -6,6 +6,9 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - "README.md"
+      - "images/**"
 
   # Allows an authorised manual deployment without creating a dummy commit.
   workflow_dispatch:
