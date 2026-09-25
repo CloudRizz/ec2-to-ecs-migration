@@ -68,6 +68,21 @@ The migrated platform runs the containerised Flask API on ECS Fargate across pri
   <img src="images/lucid - after architecture.png" alt="ECS Fargate architecture" width="900">
 </p>
 
+## ⚖️ Design Trade-offs
+
+| Design Decision | Why It Was Chosen | Trade-off |
+|---|---|---|
+| **ECS Fargate instead of EC2-hosted containers** | Removes host management and simplifies container deployment and scaling | Higher runtime cost than optimised EC2 capacity |
+| **ECS tasks in private subnets** | Prevents direct internet exposure of application containers | Outbound access requires NAT infrastructure |
+| **NAT Gateway per AZ** | Maintains AZ independence and avoids routing private workloads through another AZ | Higher cost than using a single NAT Gateway |
+| **ALB across two AZs** | Provides resilient ingress, health checks and traffic distribution | Additional cost and infrastructure |
+| **Two ECS subnets across separate AZs** | Allows the service to remain available if an AZ becomes unavailable | More networking resources to manage |
+| **Immutable ECR images using commit SHA tags** | Makes deployments traceable and prevents images being overwritten | Every deployment creates a new image version |
+| **GitHub OIDC instead of AWS access keys** | Removes long-lived AWS credentials from GitHub | Requires additional IAM trust and permission configuration |
+| **Terraform remote state in S3** | Provides persistent state for repeatable CI/CD deployments | Bootstrap infrastructure must exist before the production stack |
+| **Manual production approval** | Prevents Terraform changes being applied automatically after every merge | Adds an additional deployment step |
+| **Route 53 cutover with EC2 retained temporarily** | Enables a fast, tested rollback if ECS has problems | Both environments run during the migration window |
+
 ## 🚀 Migration Approach
 
 The migration was completed in stages so the legacy application could remain available while the ECS platform was built and tested.
